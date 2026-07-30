@@ -1,0 +1,44 @@
+# kloc — count lines of code and code complexity via universal AST parsing
+
+New approach to counting lines of code and code complexity based on a
+universal AST parsing engine — tree-sitter.  Makes the code lean and easy
+to maintain by depending on the diligent work of the tree-sitter community.
+
+`sloccount` (David A. Wheeler) and `cloc` (Al Danial) are Debian/Ubuntu
+packages with a similar purpose, but not using universal parsers.
+I found sloccount invaluable in understanding the pace of my own work
+and the size of other projects.
+
+## Build
+
+Requires Rust 1.85+ (for edition 2024).
+
+```sh
+git clone https://github.com/mgajda/kloc.git
+cd kloc
+cargo build --release
+```
+
+## Install
+
+```sh
+cargo install --path .
+```
+
+Binary is installed as `~/.cargo/bin/kloc`.
+
+## Use
+
+```sh
+kloc                    # count current directory
+kloc src/               # count specific directory
+kloc file1.rs file2.c   # count specific files
+kloc --json             # JSON output
+kloc --only rust        # only Rust files
+kloc --exclude json,yaml
+kloc --only-programming
+```
+
+## Packaging status
+
+Debian, RPM, Podman, and Snap packages are not yet available — contributions welcome.
