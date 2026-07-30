@@ -153,60 +153,63 @@ pub fn analyze(source: &[u8], spec: &LanguageSpec) -> ComplexityResult {
     let mut decisions: u64 = 0;
     let mut functions: u64 = 0;
 
-    let mut cursor = root.walk();
-    let mut in_function = false;
-    let mut function_depth: u32 = 0;
-
-    loop {
-        let node = cursor.node();
-        let kind = node.kind();
-        let parent = node.parent();
-        let parent_kind = parent.as_ref().map_or("", |p| p.kind());
-
-        if node.is_named() {
-                    if let Ok(raw) = node.utf8_text(source) {
-                        let text = raw.trim();
-                        if !text.is_empty() {
-                            let is_op = classify(kind, text, parent_kind);
-                            let m = if is_op { &mut op_counts } else { &mut opd_counts };
-                            *m.entry(text.to_string()).or_insert(0) += 1;
-                        }
-                    }
-        }
-
-        if node.is_named() && kind_is_function(kind) && !in_function {
-            functions += 1;
-            in_function = true;
-            function_depth = 1;
-        }
-
-        if node.is_named() && in_function && kind_is_decision(kind) {
-            decisions += 1;
-        }
-
-        if node.is_named() && in_function
-            && kind_is_binary_condition(kind, node.utf8_text(source).unwrap_or(""))
-        {
-            decisions += 1;
-        }
-
-        if cursor.goto_first_child() {
-            if in_function { function_depth += 1; }
-            continue;
-        }
-
-        if cursor.goto_next_sibling() { continue; }
-
-        loop {
-            if !cursor.goto_parent() { break; }
-            if in_function { function_depth -= 1; }
-            if function_depth == 0 { in_function = false; }
-
-            if cursor.goto_next_sibling() { break; }
-        }
-        if function_depth > 0 { continue; }
-        break;
+    struct WalkState<'a> {
+        ops: &'a mut HashMap<String, u64>,
+        opds: &'a mut HashMap<String, u64>,
+        decisions: u64,
+        functions: u64,
+        in_fn: bool,
+        fn_depth: u32,
     }
+
+    fn walk_node(node: tree_sitter::Node, source: &[u8], state: &mut WalkState) {
+        let kind = node.kind();
+        let is_named = node.is_named();
+        let parent_kind = node.parent().as_ref().map_or("", |p| p.kind());
+
+        if !is_named || node.child_count() == 0 {
+            if let Ok(raw) = node.utf8_text(source) {
+                let text = raw.trim();
+                if !text.is_empty() {
+                    let is_op = classify(kind, text, parent_kind);
+                    let m = if is_op { &mut *state.ops } else { &mut *state.opds };
+                    m.entry(text.to_string()).and_modify(|c| *c += 1).or_insert(1);
+                }
+            }
+        }
+
+        if is_named && kind_is_function(kind) && !state.in_fn {
+            state.functions += 1;
+            state.in_fn = true;
+            state.fn_depth = 0;
+        }
+
+        if is_named && state.in_fn && kind_is_decision(kind) {
+            state.decisions += 1;
+        }
+
+        let mut child = node.walk();
+        if child.goto_first_child() {
+            if state.in_fn { state.fn_depth += 1; }
+            loop {
+                walk_node(child.node(), source, state);
+                if !child.goto_next_sibling() { break; }
+            }
+            if state.in_fn {
+                if state.fn_depth == 0 { state.in_fn = false; }
+                else { state.fn_depth -= 1; }
+            }
+        }
+    }
+
+    let mut ws = WalkState {
+        ops: &mut op_counts, opds: &mut opd_counts,
+        decisions: 0, functions: 0,
+        in_fn: false, fn_depth: 0,
+    };
+    walk_node(root, source, &mut ws);
+    let decisions = ws.decisions;
+    let functions = ws.functions;
 
     let n1 = op_counts.len() as u64;
     let n2 = opd_counts.len() as u64;
