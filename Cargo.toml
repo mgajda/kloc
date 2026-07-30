@@ -4,7 +4,7 @@ version = "0.2.0"
 edition = "2024"
 license = "GPL-2.0-only"
 authors = ["Michal J. Gajda <mjgajda@migamake.com>"]
-description = "Count lines of code and code complexity using precise AST-based analysis"
+description = "Count lines of code and code complexity via universal AST parsing"
 repository = "https://github.com/mgajda/kloc"
 readme = "README.md"
 
