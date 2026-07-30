@@ -190,7 +190,8 @@ mod tests {
             name: "test",
             extensions: &[],
             shebangs: &[],
-            grammar_fn: tree_sitter_bash::LANGUAGE,
+            filenames: &[],
+            grammar_fn: || Language::new(tree_sitter_bash::LANGUAGE),
             comment_kinds: &["comment"],
         };
         let result = count(b"\n\n\n", &spec);
