@@ -1,7 +1,7 @@
 [package]
 name = "kloc"
 version = "0.2.0"
-edition = "2021"
+edition = "2024"
 license = "GPL-2.0-only"
 authors = ["Michal J. Gajda <mjgajda@migamake.com>"]
 description = "Count lines of code, and code complexity using precise AST-based analysis"
