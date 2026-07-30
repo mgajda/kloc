@@ -13,8 +13,13 @@ clap = { version = "4", features = ["derive"] }
 rayon = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tree-sitter = "0.24"
-bincode = "1"
+tree-sitter = "0.26"
+tree-sitter-language = "0.1"
+tree-sitter-c = "0.24"
+tree-sitter-python = "0.25"
+tree-sitter-javascript = "0.25"
+tree-sitter-rust = "0.24"
+tree-sitter-bash = "0.25"
 walkdir = "2"
 
 [dev-dependencies]
