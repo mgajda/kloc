@@ -1,0 +1,17 @@
+Source: kloc
+Section: devel
+Priority: optional
+Maintainer: Michal J. Gajda <mjgajda@migamake.com>
+Build-Depends: debhelper-compat (= 13), rustc (>= 1.85), cargo
+Standards-Version: 4.6.2
+Homepage: https://github.com/mgajda/kloc
+Vcs-Git: https://github.com/mgajda/kloc.git
+Vcs-Browser: https://github.com/mgajda/kloc
+
+Package: kloc
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: Count lines of code and code complexity via universal AST parsing
+ kloc uses tree-sitter for AST-based analysis, counting source lines of code
+ (SLOC), comments, blank lines, and code complexity metrics across many
+ programming languages. Each language is a Cargo feature gate.

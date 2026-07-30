@@ -1,0 +1,60 @@
+name: Package
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  deb:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+      - name: Install cargo-deb
+        run: cargo install cargo-deb
+      - name: Build .deb
+        run: cargo deb --no-build
+      - name: Upload .deb
+        uses: actions/upload-artifact@v4
+        with:
+          name: kloc-deb
+          path: target/debian/*.deb
+
+  rpm:
+    runs-on: fedora-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: dnf install -y rust cargo rpm-build
+      - name: Build RPM
+        run: |
+          mkdir -p ~/rpmbuild/{SOURCES,SPECS}
+          tar czf ~/rpmbuild/SOURCES/kloc-$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version').tar.gz \
+            --exclude .git --transform "s/^/kloc-$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')/" .
+          cp kloc.spec ~/rpmbuild/SPECS/
+          rpmbuild -ba ~/rpmbuild/SPECS/kloc.spec
+      - name: Upload RPM
+        uses: actions/upload-artifact@v4
+        with:
+          name: kloc-rpm
+          path: ~/rpmbuild/RPMS/**/*.rpm
+
+  container:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build container image
+        run: podman build -f Containerfile -t kloc:latest .
+      - name: Test container
+        run: podman run --rm -v .:/src:ro kloc:latest /src
+      - name: Push to GHCR
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          podman tag kloc:latest ghcr.io/${{ github.repository }}:${GITHUB_REF_NAME}
+          podman tag kloc:latest ghcr.io/${{ github.repository }}:latest
+          echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u ${{ github.actor }} --password-stdin
+          podman push ghcr.io/${{ github.repository }}:${GITHUB_REF_NAME}
+          podman push ghcr.io/${{ github.repository }}:latest
