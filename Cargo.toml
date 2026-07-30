@@ -1,0 +1,21 @@
+[package]
+name = "sloccount-rs"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-2.0-only"
+authors = ["Michal J. Gajda <mjgajda@gmail.com>"]
+description = "Rewrite of sloccount (SLOCCount) with tree-sitter-based parsing and modern complexity metrics"
+repository = "https://github.com/mjgajda/sloccount-rs"
+readme = "README.md"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+rayon = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tree-sitter = "0.24"
+bincode = "1"
+walkdir = "2"
+
+[dev-dependencies]
+tempfile = "3"
