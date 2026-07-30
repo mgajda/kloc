@@ -1,10 +1,10 @@
 [package]
-name = "sloccount-rs"
+name = "kloccount"
 version = "0.2.0"
 edition = "2021"
 license = "GPL-2.0-only"
 authors = ["Michal J. Gajda <mjgajda@migamake.com>"]
-description = "New implementation inspired by sloccount (SLOCCount), with tree-sitter parsing and modern complexity metrics"
+description = "Count source lines of code with tree-sitter parsing and modern complexity metrics"
 repository = "https://github.com/mgajda/sloccount-rs"
 readme = "README.md"
 

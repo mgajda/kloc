@@ -1,9 +1,9 @@
 use std::path::Path;
 
-fn count_source(source: &[u8], path: &str) -> Option<sloccount_rs::counter::CountResult> {
-    let registry = sloccount_rs::language::registry();
+fn count_source(source: &[u8], path: &str) -> Option<kloccount::counter::CountResult> {
+    let registry = kloccount::language::registry();
     let spec = registry.detect(Path::new(path), None)?;
-    Some(sloccount_rs::counter::count(source, spec))
+    Some(kloccount::counter::count(source, spec))
 }
 
 // Default features (always available)

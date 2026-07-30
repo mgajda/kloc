@@ -6,7 +6,7 @@ fn write_file(dir: &PathBuf, name: &str, content: &[u8]) {
 }
 
 fn test_dir(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("sloccount_test_{}", name));
+    let dir = std::env::temp_dir().join(format!("kloccount_test_{}", name));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).unwrap();
     dir
@@ -21,8 +21,8 @@ fn assert_contains(report: &str, lang: &str, sloc: u64) {
     );
 }
 
-fn default_filter() -> sloccount_rs::LanguageFilter {
-    sloccount_rs::LanguageFilter {
+fn default_filter() -> kloccount::LanguageFilter {
+    kloccount::LanguageFilter {
         only: vec![],
         exclude: vec![],
         only_programming: false,
@@ -32,14 +32,14 @@ fn default_filter() -> sloccount_rs::LanguageFilter {
 
 fn run_and_get_text(paths: &[PathBuf]) -> String {
     let filter = default_filter();
-    let report = sloccount_rs::run(paths, &filter);
-    sloccount_rs::output::format(&report, &sloccount_rs::output::OutputFormat::Text)
+    let report = kloccount::run(paths, &filter);
+    kloccount::output::format(&report, &kloccount::output::OutputFormat::Text)
 }
 
 fn run_and_get_json(paths: &[PathBuf]) -> serde_json::Value {
     let filter = default_filter();
-    let report = sloccount_rs::run(paths, &filter);
-    let json = sloccount_rs::output::format(&report, &sloccount_rs::output::OutputFormat::Json);
+    let report = kloccount::run(paths, &filter);
+    let json = kloccount::output::format(&report, &kloccount::output::OutputFormat::Json);
     serde_json::from_str(&json).unwrap()
 }
 
@@ -53,7 +53,7 @@ fn integration_single_language_rust() {
 }
 
 fn has_language(name: &str) -> bool {
-    let reg = sloccount_rs::language::registry();
+    let reg = kloccount::language::registry();
     reg.languages().iter().any(|l| l.name == name)
 }
 
@@ -206,13 +206,13 @@ fn integration_filter_only_programming() {
     let dir = test_dir("filter_prog");
     write_file(&dir, "main.rs", b"fn main() {}\n");
 
-    let filter = sloccount_rs::LanguageFilter {
+    let filter = kloccount::LanguageFilter {
         only: vec![],
         exclude: vec![],
         only_programming: true,
         only_machine: false,
     };
-    let report = sloccount_rs::run(&[dir], &filter);
+    let report = kloccount::run(&[dir], &filter);
     assert_eq!(report.total_sloc, 1, "only Rust should be counted (1 sloc)");
     assert_eq!(report.by_language.len(), 1, "only Rust in results");
     assert_eq!(report.by_language[0].name, "Rust");
@@ -225,13 +225,13 @@ fn integration_filter_only_machine() {
     write_file(&dir, "main.rs", b"fn main() {}\n");
     write_file(&dir, "data.json", b"{\"key\": 1}\n");
 
-    let filter = sloccount_rs::LanguageFilter {
+    let filter = kloccount::LanguageFilter {
         only: vec![],
         exclude: vec![],
         only_programming: false,
         only_machine: true,
     };
-    let report = sloccount_rs::run(&[dir], &filter);
+    let report = kloccount::run(&[dir], &filter);
     assert!(report.total_sloc > 0, "machine languages should have sloc");
     assert!(report.by_language.iter().any(|l| l.name == "JSON"), "JSON should be included");
     assert!(report.by_language.iter().all(|l| l.name != "Rust"), "Rust should be excluded");
@@ -244,13 +244,13 @@ fn integration_filter_only_specific_languages() {
     write_file(&dir, "main.py", b"def main():\n    pass\n");
     write_file(&dir, "app.js", b"function main() {}\n");
 
-    let filter = sloccount_rs::LanguageFilter {
+    let filter = kloccount::LanguageFilter {
         only: vec!["python".to_string()],
         exclude: vec![],
         only_programming: false,
         only_machine: false,
     };
-    let report = sloccount_rs::run(&[dir], &filter);
+    let report = kloccount::run(&[dir], &filter);
     assert_eq!(report.total_sloc, 2, "only Python should be counted (2 sloc)");
     assert_eq!(report.by_language.len(), 1);
     assert_eq!(report.by_language[0].name, "Python");
@@ -262,13 +262,13 @@ fn integration_filter_exclude_languages() {
     write_file(&dir, "main.rs", b"fn main() {}\n");
     write_file(&dir, "main.py", b"def main():\n    pass\n");
 
-    let filter = sloccount_rs::LanguageFilter {
+    let filter = kloccount::LanguageFilter {
         only: vec![],
         exclude: vec!["python".to_string()],
         only_programming: false,
         only_machine: false,
     };
-    let report = sloccount_rs::run(&[dir], &filter);
+    let report = kloccount::run(&[dir], &filter);
     assert_eq!(report.total_sloc, 1, "only Rust should be counted");
     assert_eq!(report.by_language.len(), 1);
     assert_eq!(report.by_language[0].name, "Rust");
@@ -280,13 +280,13 @@ fn integration_filter_only_programming_and_only() {
     write_file(&dir, "main.rs", b"fn main() {}\n");
     write_file(&dir, "data.json", b"{\"key\": 1}\n");
 
-    let filter = sloccount_rs::LanguageFilter {
+    let filter = kloccount::LanguageFilter {
         only: vec!["rust".to_string()],
         exclude: vec![],
         only_programming: false,
         only_machine: false,
     };
-    let report = sloccount_rs::run(&[dir], &filter);
+    let report = kloccount::run(&[dir], &filter);
     assert_eq!(report.total_sloc, 1, "only Rust should be counted");
     assert_eq!(report.by_language[0].name, "Rust");
 }
@@ -298,8 +298,8 @@ fn integration_json_parseable() {
 
     let json_str = {
         let filter = default_filter();
-        let report = sloccount_rs::run(&[dir], &filter);
-        sloccount_rs::output::format(&report, &sloccount_rs::output::OutputFormat::Json)
+        let report = kloccount::run(&[dir], &filter);
+        kloccount::output::format(&report, &kloccount::output::OutputFormat::Json)
     };
 
     let parsed: serde_json::Value = serde_json::from_str(&json_str)
