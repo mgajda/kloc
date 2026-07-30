@@ -4,7 +4,7 @@ version = "0.2.0"
 edition = "2021"
 license = "GPL-2.0-only"
 authors = ["Michal J. Gajda <mjgajda@gmail.com>"]
-description = "Rewrite of sloccount (SLOCCount) with tree-sitter-based parsing and modern complexity metrics"
+description = "New implementation inspired by sloccount (SLOCCount), with tree-sitter parsing and modern complexity metrics"
 repository = "https://github.com/mgajda/sloccount-rs"
 readme = "README.md"
 
