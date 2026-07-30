@@ -1,7 +1,7 @@
 use std::path::Path;
 
 fn detect(path: &str, first_line: Option<&[u8]>) -> Option<&'static str> {
-    let registry = kloccount::language::registry();
+    let registry = kloc::language::registry();
     let p = Path::new(path);
     let spec = registry.detect(p, first_line);
     spec.map(|s| s.name)
@@ -202,7 +202,7 @@ fn detect_multi_language_directory() {
 
 #[test]
 fn test_all_languages_have_unique_extensions() {
-    let registry = kloccount::language::registry();
+    let registry = kloc::language::registry();
     let mut seen_exts: std::collections::HashMap<&str, Vec<&str>> = std::collections::HashMap::new();
     for lang in registry.languages() {
         for ext in lang.extensions {

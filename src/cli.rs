@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use clap::Parser;
 
 #[derive(Parser, Debug)]
-#[command(name = "kloccount", version, about = "Count Source Lines of Code")]
+#[command(name = "kloc", version, about = "Count Source Lines of Code")]
 pub struct Args {
     pub paths: Vec<PathBuf>,
 

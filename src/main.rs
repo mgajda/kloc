@@ -1,5 +1,5 @@
 use clap::Parser;
-use kloccount::{self, cli::Args, output::OutputFormat, LanguageFilter};
+use kloc::{self, cli::Args, output::OutputFormat, LanguageFilter};
 
 fn main() {
     let args = Args::parse();
@@ -10,6 +10,6 @@ fn main() {
     };
     let output_format = if args.json { OutputFormat::Json } else { OutputFormat::Text };
     let filter = LanguageFilter::from(&args);
-    let report = kloccount::run(&paths, &filter);
-    println!("{}", kloccount::output::format(&report, &output_format));
+    let report = kloc::run(&paths, &filter);
+    println!("{}", kloc::output::format(&report, &output_format));
 }

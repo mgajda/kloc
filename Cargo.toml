@@ -1,11 +1,11 @@
 [package]
-name = "kloccount"
+name = "kloc"
 version = "0.2.0"
 edition = "2021"
 license = "GPL-2.0-only"
 authors = ["Michal J. Gajda <mjgajda@migamake.com>"]
-description = "Count source lines of code with tree-sitter parsing and modern complexity metrics"
-repository = "https://github.com/mgajda/sloccount-rs"
+description = "Count source lines of code with AST-based analysis and modern complexity metrics"
+repository = "https://github.com/mgajda/kloc"
 readme = "README.md"
 
 [features]
