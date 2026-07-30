@@ -4,9 +4,16 @@ use tree_sitter::Language;
 
 type GrammarFn = fn() -> Language;
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum LanguageCategory {
+    Programming,
+    Machine,
+}
+
 #[derive(Clone)]
 pub struct LanguageSpec {
     pub name: &'static str,
+    pub category: LanguageCategory,
     pub extensions: &'static [&'static str],
     pub shebangs: &'static [&'static str],
     pub filenames: &'static [&'static str],
@@ -25,9 +32,10 @@ pub fn registry() -> &'static LanguageRegistry {
     REGISTRY.get_or_init(|| {
         let mut reg = LanguageRegistry { languages: Vec::new() };
         macro_rules! add_lang {
-            ($exts:expr, $shebangs:expr, $fnames:expr, $name:expr, $comments:expr, $fn:expr) => {{
+            ($cat:ident, $exts:expr, $shebangs:expr, $fnames:expr, $name:expr, $comments:expr, $fn:expr) => {{
                 reg.languages.push(LanguageSpec {
                     name: $name,
+                    category: LanguageCategory::$cat,
                     extensions: $exts,
                     shebangs: $shebangs,
                     filenames: $fnames,
@@ -37,126 +45,172 @@ pub fn registry() -> &'static LanguageRegistry {
             }};
         }
 
-        // Default
-        add_lang!(&[".rs"], &[], &[], "Rust", &["line_comment", "block_comment"],
+        // Default: Programming
+        add_lang!(Programming, &[".rs"], &[], &[], "Rust", &["line_comment", "block_comment"],
             || Language::new(tree_sitter_rust::LANGUAGE));
         #[cfg(feature = "c")]
-        add_lang!(&[".c"], &[], &[".h"], "C", &["comment"],
+        add_lang!(Programming, &[".c", ".h"], &[], &[], "C", &["comment"],
             || Language::new(tree_sitter_c::LANGUAGE));
         #[cfg(feature = "python")]
-        add_lang!(&[".py", ".pyw"], &["python"], &[], "Python", &["comment"],
+        add_lang!(Programming, &[".py", ".pyw"], &["python"], &[], "Python", &["comment"],
             || Language::new(tree_sitter_python::LANGUAGE));
         #[cfg(feature = "javascript")]
-        add_lang!(&[".js", ".jsx", ".mjs", ".cjs"], &["node", "nodejs"], &[], "JavaScript", &["comment"],
+        add_lang!(Programming, &[".js", ".jsx", ".mjs", ".cjs"], &["node", "nodejs"], &[], "JavaScript", &["comment"],
             || Language::new(tree_sitter_javascript::LANGUAGE));
         #[cfg(feature = "bash")]
-        add_lang!(&[".sh", ".bash"], &["sh", "bash", "dash", "zsh"], &[], "Bash", &["comment"],
+        add_lang!(Programming, &[".sh", ".bash"], &["sh", "bash", "dash", "zsh"], &[], "Bash", &["comment"],
             || Language::new(tree_sitter_bash::LANGUAGE));
-
-        // Phase 2a
         #[cfg(feature = "haskell")]
-        add_lang!(&[".hs", ".lhs"], &["runhaskell"], &[], "Haskell", &["comment"],
+        add_lang!(Programming, &[".hs", ".lhs"], &["runhaskell"], &[], "Haskell", &["comment"],
             || Language::new(tree_sitter_haskell::LANGUAGE));
         #[cfg(feature = "ocaml")]
-        add_lang!(&[".ml"], &[], &[], "OCaml", &["comment"],
+        add_lang!(Programming, &[".ml"], &[], &[], "OCaml", &["comment"],
             || Language::new(tree_sitter_ocaml::LANGUAGE_OCAML));
         #[cfg(feature = "ocaml")]
-        add_lang!(&[".mli"], &[], &[], "OCaml", &["comment"],
+        add_lang!(Programming, &[".mli"], &[], &[], "OCaml", &["comment"],
             || Language::new(tree_sitter_ocaml::LANGUAGE_OCAML_INTERFACE));
         #[cfg(feature = "elm")]
-        add_lang!(&[".elm"], &[], &[], "Elm", &["comment"],
+        add_lang!(Programming, &[".elm"], &[], &[], "Elm", &["comment"],
             || Language::new(tree_sitter_elm::LANGUAGE));
         #[cfg(feature = "go")]
-        add_lang!(&[".go"], &[], &[], "Go", &["comment"],
+        add_lang!(Programming, &[".go"], &[], &[], "Go", &["comment"],
             || Language::new(tree_sitter_go::LANGUAGE));
         #[cfg(feature = "typescript")]
-        add_lang!(&[".ts"], &[], &[], "TypeScript", &["comment"],
+        add_lang!(Programming, &[".ts"], &[], &[], "TypeScript", &["comment"],
             || Language::new(tree_sitter_typescript::LANGUAGE_TYPESCRIPT));
         #[cfg(feature = "typescript")]
-        add_lang!(&[".tsx"], &[], &[], "TSX", &["comment"],
+        add_lang!(Programming, &[".tsx"], &[], &[], "TSX", &["comment"],
             || Language::new(tree_sitter_typescript::LANGUAGE_TSX));
         #[cfg(feature = "java")]
-        add_lang!(&[".java"], &[], &[], "Java", &["comment"],
+        add_lang!(Programming, &[".java"], &[], &[], "Java", &["line_comment", "block_comment"],
             || Language::new(tree_sitter_java::LANGUAGE));
         #[cfg(feature = "scala")]
-        add_lang!(&[".scala", ".sc"], &[], &[], "Scala", &["comment"],
+        add_lang!(Programming, &[".scala", ".sc"], &[], &[], "Scala", &["comment"],
             || Language::new(tree_sitter_scala::LANGUAGE));
-
-        // Standard LANGUAGE pattern
-        macro_rules! lang_std {
-            ($feat:expr, $exts:expr, $shebangs:expr, $fnames:expr, $name:expr, $crat:ident) => {
-                #[cfg(feature = $feat)]
-                add_lang!($exts, $shebangs, $fnames, $name, &["comment"],
-                    || Language::new($crat::LANGUAGE));
-            };
-        }
-        lang_std!("ada", &[".ada", ".ads", ".adb"], &[], &[], "Ada", tree_sitter_ada);
-        lang_std!("agda", &[".agda", ".lagda"], &[], &[], "Agda", tree_sitter_agda);
-        lang_std!("cpp", &[".cpp", ".cxx", ".cc", ".c++", ".hpp", ".hxx", ".hh", ".h++"], &[], &[], "C++", tree_sitter_cpp);
-        lang_std!("csharp", &[".cs"], &[], &[], "C#", tree_sitter_c_sharp);
-        lang_std!("css", &[".css", ".scss", ".less"], &[], &[], "CSS", tree_sitter_css);
-        lang_std!("dart", &[".dart"], &[], &[], "Dart", tree_sitter_dart);
-        lang_std!("elixir", &[".ex", ".exs"], &["elixir"], &[], "Elixir", tree_sitter_elixir);
-        lang_std!("erlang", &[".erl", ".hrl"], &[], &[], "Erlang", tree_sitter_erlang);
-        lang_std!("fortran", &[".f", ".f90", ".f95", ".f03", ".f08"], &[], &[], "Fortran", tree_sitter_fortran);
-        lang_std!("gleam", &[".gleam"], &[], &[], "Gleam", tree_sitter_gleam);
-        lang_std!("graphql", &[".graphql", ".gql"], &[], &[], "GraphQL", tree_sitter_graphql);
-        lang_std!("groovy", &[".groovy", ".gvy", ".gy", ".gsh"], &[], &[], "Groovy", tree_sitter_groovy);
-        lang_std!("hcl", &[".tf", ".tfvars", ".hcl"], &[], &[], "HCL", tree_sitter_hcl);
-        lang_std!("html", &[".html", ".htm", ".xhtml"], &[], &[], "HTML", tree_sitter_html);
-        lang_std!("json", &[".json"], &[], &[], "JSON", tree_sitter_json);
-        lang_std!("julia", &[".jl"], &[], &[], "Julia", tree_sitter_julia);
-        lang_std!("lua", &[".lua"], &["lua"], &[], "Lua", tree_sitter_lua);
-        lang_std!("make", &[".mak", ".mk"], &[], &["Makefile", "makefile", "GNUmakefile"], "Make", tree_sitter_make);
-        lang_std!("nix", &[".nix"], &[], &[], "Nix", tree_sitter_nix);
-        lang_std!("odin", &[".odin"], &[], &[], "Odin", tree_sitter_odin);
-        lang_std!("pascal", &[".pas"], &[], &[], "Pascal", tree_sitter_pascal);
-        lang_std!("perl", &[".pl", ".pm", ".t"], &["perl"], &[], "Perl", tree_sitter_perl);
-        lang_std!("powershell", &[".ps1", ".psm1", ".psd1"], &["pwsh"], &[], "PowerShell", tree_sitter_powershell);
-        lang_std!("proto", &[".proto"], &[], &[], "Protobuf", tree_sitter_proto);
-        lang_std!("r", &[".r", ".R", ".rmd"], &["R"], &[], "R", tree_sitter_r);
-        lang_std!("ruby", &[".rb"], &["ruby"], &[], "Ruby", tree_sitter_ruby);
-        lang_std!("scheme", &[".scm", ".ss"], &[], &[], "Scheme", tree_sitter_scheme);
-        lang_std!("slint", &[".slint"], &[], &[], "Slint", tree_sitter_slint);
-        lang_std!("solidity", &[".sol"], &[], &[], "Solidity", tree_sitter_solidity);
-        lang_std!("swift", &[".swift"], &[], &[], "Swift", tree_sitter_swift);
-        lang_std!("verilog", &[".sv", ".svh"], &[], &[".v", ".vh"], "Verilog", tree_sitter_verilog);
-        lang_std!("vhdl", &[".vhdl", ".vhd"], &[], &[], "VHDL", tree_sitter_vhdl);
-        lang_std!("yaml", &[".yaml", ".yml"], &[], &[], "YAML", tree_sitter_yaml);
-        lang_std!("zig", &[".zig"], &[], &[], "Zig", tree_sitter_zig);
-        lang_std!("zsh", &[".zsh"], &["zsh"], &[], "Zsh", tree_sitter_zsh);
-
-        // Named LANGUAGE_* constants
-        macro_rules! lang_named {
-            ($feat:expr, $exts:expr, $shebangs:expr, $fnames:expr, $name:expr, $crat:ident, $const:ident) => {
-                #[cfg(feature = $feat)]
-                add_lang!($exts, $shebangs, $fnames, $name, &["comment"],
-                    || Language::new($crat::$const));
-            };
-        }
-        lang_named!("fsharp", &[".fs", ".fsx", ".fsi"], &[], &[], "F#", tree_sitter_fsharp, LANGUAGE_FSHARP);
-        lang_named!("glsl", &[".vert", ".frag", ".geom", ".comp", ".tesc", ".tese", ".glsl"], &[], &[], "GLSL", tree_sitter_glsl, LANGUAGE_GLSL);
-        lang_named!("php", &[".php", ".phtml", ".php3", ".php4", ".php5"], &[], &[], "PHP", tree_sitter_php, LANGUAGE_PHP);
-
-        // V (only matches .v as exact filename, not extension, to avoid conflict with Verilog)
+        #[cfg(feature = "ada")]
+        add_lang!(Programming, &[".ada", ".ads", ".adb"], &[], &[], "Ada", &["comment"],
+            || Language::new(tree_sitter_ada::LANGUAGE));
+        #[cfg(feature = "agda")]
+        add_lang!(Programming, &[".agda", ".lagda"], &[], &[], "Agda", &["comment"],
+            || Language::new(tree_sitter_agda::LANGUAGE));
+        #[cfg(feature = "cpp")]
+        add_lang!(Programming, &[".cpp", ".cxx", ".cc", ".c++", ".hpp", ".hxx", ".hh", ".h++"], &[], &[], "C++", &["comment"],
+            || Language::new(tree_sitter_cpp::LANGUAGE));
+        #[cfg(feature = "csharp")]
+        add_lang!(Programming, &[".cs"], &[], &[], "C#", &["comment"],
+            || Language::new(tree_sitter_c_sharp::LANGUAGE));
+        #[cfg(feature = "dart")]
+        add_lang!(Programming, &[".dart"], &[], &[], "Dart", &["comment"],
+            || Language::new(tree_sitter_dart::LANGUAGE));
+        #[cfg(feature = "elixir")]
+        add_lang!(Programming, &[".ex", ".exs"], &["elixir"], &[], "Elixir", &["comment"],
+            || Language::new(tree_sitter_elixir::LANGUAGE));
+        #[cfg(feature = "erlang")]
+        add_lang!(Programming, &[".erl", ".hrl"], &[], &[], "Erlang", &["comment"],
+            || Language::new(tree_sitter_erlang::LANGUAGE));
+        #[cfg(feature = "fish")]
+        add_lang!(Programming, &[".fish"], &["fish"], &[], "Fish", &["comment"],
+            tree_sitter_fish::language);
+        #[cfg(feature = "fortran")]
+        add_lang!(Programming, &[".f", ".f90", ".f95", ".f03", ".f08"], &[], &[], "Fortran", &["comment"],
+            || Language::new(tree_sitter_fortran::LANGUAGE));
+        #[cfg(feature = "fsharp")]
+        add_lang!(Programming, &[".fs", ".fsx", ".fsi"], &[], &[], "F#", &["comment"],
+            || Language::new(tree_sitter_fsharp::LANGUAGE_FSHARP));
+        #[cfg(feature = "gleam")]
+        add_lang!(Programming, &[".gleam"], &[], &[], "Gleam", &["comment"],
+            || Language::new(tree_sitter_gleam::LANGUAGE));
+        #[cfg(feature = "glsl")]
+        add_lang!(Programming, &[".vert", ".frag", ".geom", ".comp", ".tesc", ".tese", ".glsl"], &[], &[], "GLSL", &["comment"],
+            || Language::new(tree_sitter_glsl::LANGUAGE_GLSL));
+        #[cfg(feature = "graphql")]
+        add_lang!(Programming, &[".graphql", ".gql"], &[], &[], "GraphQL", &["comment"],
+            || Language::new(tree_sitter_graphql::LANGUAGE));
+        #[cfg(feature = "groovy")]
+        add_lang!(Programming, &[".groovy", ".gvy", ".gy", ".gsh"], &[], &[], "Groovy", &["comment"],
+            || Language::new(tree_sitter_groovy::LANGUAGE));
+        #[cfg(feature = "julia")]
+        add_lang!(Programming, &[".jl"], &[], &[], "Julia", &["comment"],
+            || Language::new(tree_sitter_julia::LANGUAGE));
+        #[cfg(feature = "lua")]
+        add_lang!(Programming, &[".lua"], &["lua"], &[], "Lua", &["comment"],
+            || Language::new(tree_sitter_lua::LANGUAGE));
+        #[cfg(feature = "make")]
+        add_lang!(Programming, &[".mak", ".mk"], &[], &["Makefile", "makefile", "GNUmakefile"], "Make", &["comment"],
+            || Language::new(tree_sitter_make::LANGUAGE));
+        #[cfg(feature = "nix")]
+        add_lang!(Programming, &[".nix"], &[], &[], "Nix", &["comment"],
+            || Language::new(tree_sitter_nix::LANGUAGE));
+        #[cfg(feature = "odin")]
+        add_lang!(Programming, &[".odin"], &[], &[], "Odin", &["comment"],
+            || Language::new(tree_sitter_odin::LANGUAGE));
+        #[cfg(feature = "pascal")]
+        add_lang!(Programming, &[".pas"], &[], &[], "Pascal", &["comment"],
+            || Language::new(tree_sitter_pascal::LANGUAGE));
+        #[cfg(feature = "perl")]
+        add_lang!(Programming, &[".pl", ".pm", ".t"], &["perl"], &[], "Perl", &["comment"],
+            || Language::new(tree_sitter_perl::LANGUAGE));
+        #[cfg(feature = "php")]
+        add_lang!(Programming, &[".php", ".phtml", ".php3", ".php4", ".php5"], &[], &[], "PHP", &["comment"],
+            || Language::new(tree_sitter_php::LANGUAGE_PHP));
+        #[cfg(feature = "powershell")]
+        add_lang!(Programming, &[".ps1", ".psm1", ".psd1"], &["pwsh"], &[], "PowerShell", &["comment"],
+            || Language::new(tree_sitter_powershell::LANGUAGE));
+        #[cfg(feature = "r")]
+        add_lang!(Programming, &[".r", ".R", ".rmd"], &["R"], &[], "R", &["comment"],
+            || Language::new(tree_sitter_r::LANGUAGE));
+        #[cfg(feature = "ruby")]
+        add_lang!(Programming, &[".rb"], &["ruby"], &[], "Ruby", &["comment"],
+            || Language::new(tree_sitter_ruby::LANGUAGE));
+        #[cfg(feature = "scheme")]
+        add_lang!(Programming, &[".scm", ".ss"], &[], &[], "Scheme", &["comment"],
+            || Language::new(tree_sitter_scheme::LANGUAGE));
+        #[cfg(feature = "slint")]
+        add_lang!(Programming, &[".slint"], &[], &[], "Slint", &["comment"],
+            || Language::new(tree_sitter_slint::LANGUAGE));
+        #[cfg(feature = "solidity")]
+        add_lang!(Programming, &[".sol"], &[], &[], "Solidity", &["comment"],
+            || Language::new(tree_sitter_solidity::LANGUAGE));
+        #[cfg(feature = "swift")]
+        add_lang!(Programming, &[".swift"], &[], &[], "Swift", &["comment"],
+            || Language::new(tree_sitter_swift::LANGUAGE));
+        #[cfg(feature = "verilog")]
+        add_lang!(Programming, &[".v", ".vh", ".sv", ".svh"], &[], &[], "Verilog", &["comment"],
+            || Language::new(tree_sitter_verilog::LANGUAGE));
+        // V: same .v extension as Verilog. Verilog has priority (registered first).
+        // To count .v files as V, enable only the "v" feature without "verilog".
         #[cfg(feature = "v")]
-        add_lang!(&[], &[], &[".v"], "V", &["comment"],
+        add_lang!(Programming, &[".v"], &[], &[], "V", &["comment"],
             || Language::new(tree_sitter_v::LANGUAGE));
+        #[cfg(feature = "vhdl")]
+        add_lang!(Programming, &[".vhdl", ".vhd"], &[], &[], "VHDL", &["comment"],
+            || Language::new(tree_sitter_vhdl::LANGUAGE));
+        #[cfg(feature = "zig")]
+        add_lang!(Programming, &[".zig"], &[], &[], "Zig", &["comment"],
+            || Language::new(tree_sitter_zig::LANGUAGE));
+        #[cfg(feature = "zsh")]
+        add_lang!(Programming, &[".zsh"], &["zsh"], &[], "Zsh", &["comment"],
+            || Language::new(tree_sitter_zsh::LANGUAGE));
 
-        // language() → Language (direct function call)
-        macro_rules! lang_direct {
-            ($feat:expr, $exts:expr, $shebangs:expr, $fnames:expr, $name:expr, $crat:ident) => {
-                #[cfg(feature = $feat)]
-                add_lang!($exts, $shebangs, $fnames, $name, &["comment"],
-                    $crat::language);
-            };
-        }
-        // Fish: uses compatible tree-sitter version
-        lang_direct!("fish", &[".fish"], &["fish"], &[], "Fish", tree_sitter_fish);
-
-        // Blocked crates (depend on old tree-sitter versions, incompatible with v0.26.x):
-        // dockerfile (v0.19), hare (v0.20), markdown (v0.19), prisma (?),
-        // sql (?), toml (v0.20), vue (?), wgsl (?), kotlin (v0.20)
+        // Machine languages (markup + config)
+        #[cfg(feature = "css")]
+        add_lang!(Machine, &[".css", ".scss", ".less"], &[], &[], "CSS", &["comment"],
+            || Language::new(tree_sitter_css::LANGUAGE));
+        #[cfg(feature = "hcl")]
+        add_lang!(Machine, &[".tf", ".tfvars", ".hcl"], &[], &[], "HCL", &["comment"],
+            || Language::new(tree_sitter_hcl::LANGUAGE));
+        #[cfg(feature = "html")]
+        add_lang!(Machine, &[".html", ".htm", ".xhtml"], &[], &[], "HTML", &["comment"],
+            || Language::new(tree_sitter_html::LANGUAGE));
+        #[cfg(feature = "json")]
+        add_lang!(Machine, &[".json"], &[], &[], "JSON", &["comment"],
+            || Language::new(tree_sitter_json::LANGUAGE));
+        #[cfg(feature = "proto")]
+        add_lang!(Machine, &[".proto"], &[], &[], "Protobuf", &["comment"],
+            || Language::new(tree_sitter_proto::LANGUAGE));
+        #[cfg(feature = "yaml")]
+        add_lang!(Machine, &[".yaml", ".yml"], &[], &[], "YAML", &["comment"],
+            || Language::new(tree_sitter_yaml::LANGUAGE));
 
         reg
     })
@@ -183,8 +237,20 @@ impl LanguageRegistry {
         if !first_line.starts_with(b"#!") {
             return None;
         }
+        // Extract interpreter name from shebang: after "#!/" or "#!/usr/bin/env "
         let line_str = std::str::from_utf8(first_line).unwrap_or("");
-        self.languages.iter().find(|l| l.shebangs.iter().any(|s| line_str.contains(s)))
+        let interpreter = if let Some(env_pos) = line_str.find("/env ") {
+            &line_str[env_pos + 5..]
+        } else {
+            // Strip "#!" and take the basename of the path
+            let after_hash = line_str.trim_start_matches("#!");
+            after_hash.rsplit('/').next().unwrap_or("")
+        };
+        // Match against full interpreter name (ignoring version suffixes like "python3")
+        let interpreter = interpreter.trim();
+        self.languages.iter().find(|l| l.shebangs.iter().any(|s| {
+            interpreter == *s || interpreter.starts_with(s)
+        }))
     }
 
     pub fn detect(&self, path: &Path, first_line: Option<&[u8]>) -> Option<&LanguageSpec> {

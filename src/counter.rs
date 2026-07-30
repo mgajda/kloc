@@ -186,8 +186,11 @@ mod tests {
 
     #[test]
     fn test_count_blank() {
+        use tree_sitter::Language;
+        use crate::language::LanguageCategory;
         let spec = LanguageSpec {
             name: "test",
+            category: LanguageCategory::Programming,
             extensions: &[],
             shebangs: &[],
             filenames: &[],

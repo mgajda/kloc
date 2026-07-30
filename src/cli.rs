@@ -8,4 +8,16 @@ pub struct Args {
 
     #[arg(long, help = "Output as JSON")]
     pub json: bool,
+
+    #[arg(long, value_delimiter = ',', help = "Only count these languages")]
+    pub only: Vec<String>,
+
+    #[arg(long, value_delimiter = ',', help = "Exclude these languages")]
+    pub exclude: Vec<String>,
+
+    #[arg(long, help = "Only count programming languages")]
+    pub only_programming: bool,
+
+    #[arg(long, help = "Only count machine/data languages")]
+    pub only_machine: bool,
 }

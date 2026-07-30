@@ -10,16 +10,31 @@ readme = "README.md"
 
 [features]
 default = ["rust", "c", "python", "javascript", "bash"]
+
+# All languages (programming + machine/data)
 all-languages = [
-    "ada", "agda", "bash", "c", "cpp", "csharp", "css", "dart",
+    "all-programming-languages",
+    "css", "glsl", "graphql", "hcl", "html",
+    "json", "make", "proto", "v", "yaml",
+]
+
+# Programming languages only (excludes data, config, markup, query)
+all-programming-languages = [
+    "ada", "agda", "bash", "c", "cpp", "csharp", "dart",
     "elixir", "elm", "erlang", "fish", "fortran",
-    "fsharp", "gleam", "glsl", "go", "graphql", "groovy",
-    "haskell", "hcl", "html", "java", "javascript", "json", "julia",
-    "lua", "make", "nix", "ocaml",
-    "odin", "pascal", "perl", "php", "powershell", "proto",
-    "python", "r", "ruby", "rust", "scala", "scheme", "slint",
-    "solidity", "swift", "typescript", "v", "verilog",
-    "vhdl", "yaml", "zig", "zsh",
+    "fsharp", "gleam", "go", "groovy",
+    "haskell", "java", "javascript", "julia",
+    "lua", "nix", "ocaml", "odin", "pascal",
+    "perl", "php", "powershell", "python", "r",
+    "ruby", "rust", "scala", "scheme", "slint",
+    "solidity", "swift", "typescript", "verilog",
+    "vhdl", "zig", "zsh",
+]
+
+# Machine/data languages (config, data, markup)
+all-machine-languages = [
+    "css", "glsl", "graphql", "hcl", "html",
+    "json", "make", "proto", "v", "yaml",
 ]
 
 ada = ["tree-sitter-ada"]
@@ -74,6 +89,8 @@ vhdl = ["tree-sitter-vhdl"]
 yaml = ["tree-sitter-yaml"]
 zig = ["tree-sitter-zig"]
 zsh = ["tree-sitter-zsh"]
+tree-sitter-sql = []
+tree-sitter-toml = []
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
@@ -84,7 +101,6 @@ tree-sitter = "0.26"
 tree-sitter-language = "0.1"
 walkdir = "2"
 
-# Grammar crates (all optional, feature-gated)
 tree-sitter-ada = { version = "0.1", optional = true }
 tree-sitter-agda = { version = "1", optional = true }
 tree-sitter-bash = { version = "0.25", optional = true }
@@ -138,6 +154,11 @@ tree-sitter-vhdl = { version = "1", optional = true }
 tree-sitter-yaml = { version = "0.7", optional = true }
 tree-sitter-zig = { version = "1", optional = true }
 tree-sitter-zsh = { version = "0.63", optional = true }
+
+# Blocked crates (incompatible tree-sitter versions):
+# lean4 (needs ^0.25, we have ^0.26), kotlin (needs 0.20.x),
+# dockerfile (0.19), hare (0.20), markdown (0.19),
+# prisma (?), vue (?), wgsl (?)
 
 [dev-dependencies]
 tempfile = "3"
