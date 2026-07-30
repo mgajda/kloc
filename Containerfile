@@ -8,3 +8,7 @@ RUN cargo build --release --locked
 FROM gcr.io/distroless/cc-debian12
 COPY --from=builder /build/target/release/kloc /usr/local/bin/kloc
 ENTRYPOINT ["/usr/local/bin/kloc"]
+LABEL org.opencontainers.image.source=https://github.com/mgajda/kloc
+LABEL org.opencontainers.image.description="Count lines of code and code complexity via universal AST parsing"
+LABEL org.opencontainers.image.licenses=GPL-2.0-only
+LABEL org.opencontainers.image.version=0.2.0
