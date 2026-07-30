@@ -1,12 +1,27 @@
 [package]
 name = "sloccount-rs"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 license = "GPL-2.0-only"
 authors = ["Michal J. Gajda <mjgajda@gmail.com>"]
 description = "Rewrite of sloccount (SLOCCount) with tree-sitter-based parsing and modern complexity metrics"
 repository = "https://github.com/mgajda/sloccount-rs"
 readme = "README.md"
+
+[features]
+default = ["rust", "c", "python", "javascript", "bash"]
+rust = ["tree-sitter-rust"]
+c = ["tree-sitter-c"]
+python = ["tree-sitter-python"]
+javascript = ["tree-sitter-javascript"]
+bash = ["tree-sitter-bash"]
+haskell = ["tree-sitter-haskell"]
+ocaml = ["tree-sitter-ocaml"]
+elm = ["tree-sitter-elm"]
+go = ["tree-sitter-go"]
+typescript = ["tree-sitter-typescript"]
+java = ["tree-sitter-java"]
+scala = ["tree-sitter-scala"]
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
@@ -15,12 +30,21 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tree-sitter = "0.26"
 tree-sitter-language = "0.1"
-tree-sitter-c = "0.24"
-tree-sitter-python = "0.25"
-tree-sitter-javascript = "0.25"
-tree-sitter-rust = "0.24"
-tree-sitter-bash = "0.25"
 walkdir = "2"
+
+# Grammar crates (all optional, feature-gated)
+tree-sitter-c = { version = "0.24", optional = true }
+tree-sitter-python = { version = "0.25", optional = true }
+tree-sitter-javascript = { version = "0.25", optional = true }
+tree-sitter-rust = { version = "0.24", optional = true }
+tree-sitter-bash = { version = "0.25", optional = true }
+tree-sitter-haskell = { version = "0.23", optional = true }
+tree-sitter-ocaml = { version = "0.25", optional = true }
+tree-sitter-elm = { version = "5", optional = true }
+tree-sitter-go = { version = "0.25", optional = true }
+tree-sitter-typescript = { version = "0.23", optional = true }
+tree-sitter-java = { version = "0.23", optional = true }
+tree-sitter-scala = { version = "0.26", optional = true }
 
 [dev-dependencies]
 tempfile = "3"
