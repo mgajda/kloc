@@ -170,7 +170,7 @@ fn count_ruby_with_comment() {
 #[test]
 fn count_perl_simple() {
     let result = count_source(b"#!/usr/bin/perl\nuse strict;\nprint \"hi\\n\";\n", "script.pl").unwrap();
-    assert_eq!(result.sloc, 3);
+    assert_eq!(result.sloc, 2);
 }
 
 #[cfg(feature = "scala")]

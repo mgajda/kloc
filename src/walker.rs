@@ -19,7 +19,9 @@ pub fn walk_files(paths: &[PathBuf], registry: &'static LanguageRegistry) -> Vec
         } else if path.is_dir() {
             for entry in WalkDir::new(path)
                 .into_iter()
-                .filter_entry(|e| !e.file_name().to_str().is_some_and(|s| s.starts_with('.')))
+                .filter_entry(|e| {
+                    e.depth() == 0 || !e.file_name().to_str().is_some_and(|s| s.starts_with('.'))
+                })
                 .flatten()
             {
                 if entry.file_type().is_file() {

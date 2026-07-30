@@ -191,6 +191,7 @@ mod tests {
         let spec = LanguageSpec {
             name: "test",
             category: LanguageCategory::Programming,
+            subgroup: None,
             extensions: &[],
             shebangs: &[],
             filenames: &[],

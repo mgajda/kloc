@@ -10,8 +10,12 @@ pub mod report;
 pub mod cli;
 
 pub use report::Report;
-pub use language::LanguageCategory;
+pub use language::{LanguageCategory, LanguageSubgroup};
 use language::LanguageSpec;
+
+fn normalize_name(s: &str) -> String {
+    s.replace('-', "_").to_lowercase()
+}
 
 pub struct LanguageFilter {
     pub only: Vec<String>,
@@ -28,11 +32,26 @@ impl LanguageFilter {
         if self.only_machine && spec.category != LanguageCategory::Machine {
             return false;
         }
-        if !self.only.is_empty() && !self.only.iter().any(|o| spec.name.eq_ignore_ascii_case(o)) {
-            return false;
+        if !self.only.is_empty() {
+            let only_normalized: Vec<String> = self.only.iter().map(|s| normalize_name(s)).collect();
+            let ok = only_normalized.iter().any(|o| {
+                o == &normalize_name(spec.name)
+                    || o == spec.category_name()
+                    || spec.subgroup_name().is_some_and(|s| o == s)
+            });
+            if !ok {
+                return false;
+            }
         }
-        if !self.exclude.is_empty() && self.exclude.iter().any(|e| spec.name.eq_ignore_ascii_case(e)) {
-            return false;
+        if !self.exclude.is_empty() {
+            let exclude_normalized: Vec<String> = self.exclude.iter().map(|s| normalize_name(s)).collect();
+            if exclude_normalized.iter().any(|e| {
+                e == &normalize_name(spec.name)
+                    || e == spec.category_name()
+                    || spec.subgroup_name().is_some_and(|s| e == s)
+            }) {
+                return false;
+            }
         }
         true
     }
