@@ -26,8 +26,12 @@ fn format_text(report: &Report) -> String {
     }
     out.push('\n');
     out.push_str(&format!(
-        "Total Physical Source Lines of Code (SLOC) = {}\n",
+        "Total lines of code without comments = {}\n",
         report.total_sloc
+    ));
+    out.push_str(&format!(
+        "Total non-empty lines with comments    = {}\n",
+        report.total_comments
     ));
     out.push_str(&format!("Total Files                     = {}\n", report.total_files));
     out

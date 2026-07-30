@@ -84,11 +84,12 @@ pub fn run(paths: &[PathBuf], filter: &LanguageFilter) -> Report {
         })
         .collect();
 
-    let mut aggregated: BTreeMap<String, (u64, u64)> = BTreeMap::new();
+    let mut aggregated: BTreeMap<String, (u64, u64, u64)> = BTreeMap::new();
     for (name, result) in counts {
-        let entry = aggregated.entry(name).or_insert((0, 0));
+        let entry = aggregated.entry(name).or_insert((0, 0, 0));
         entry.0 += result.sloc;
         entry.1 += 1;
+        entry.2 += result.comments;
     }
 
     Report::from_counts(aggregated)
