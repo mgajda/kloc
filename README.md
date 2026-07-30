@@ -30,11 +30,11 @@ cargo install --path .
 
 Binary is installed as `~/.cargo/bin/kloc`.
 
-> **Note on size**: kloc's greater precision comes at a price —
-> the binary exceeds 100 MB when built with all supported languages,
-> because each language bundles a tree-sitter parser (a C library
-> compiled into the binary).  Default features include only
-> programming languages; enable `all-languages` for the full set.
+kloc's greater precision comes at a price — the binary exceeds 100 MB
+when built with all supported languages, because each language bundles
+a tree-sitter parser (a C library compiled into the binary).  Default
+features include only programming languages; enable `all-languages`
+for the full set.
 
 ## Use
 
