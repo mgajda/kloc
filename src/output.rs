@@ -41,6 +41,28 @@ fn human_duration(seconds: f64) -> String {
     }
 }
 
+/// Humanise an effort in person-months, choosing the largest sensible unit:
+/// person-years beyond 12 months, person-weeks below 2 months, person-days
+/// below a week.
+fn human_person_months(pm: f64) -> String {
+    if pm < 0.0 || !pm.is_finite() { return "0 person-months".to_string(); }
+    const WEEK: f64 = 12.0 / 52.0;
+    const DAY: f64 = WEEK / 7.0;
+
+    let (value, unit) = if pm >= 12.0 {
+        (pm / 12.0, "person-years")
+    } else if pm >= 2.0 {
+        (pm, "person-months")
+    } else if pm >= WEEK {
+        (pm / WEEK, "person-weeks")
+    } else if pm >= DAY {
+        (pm / DAY, "person-days")
+    } else {
+        (pm, "person-months")
+    };
+    format!("{value:.1} {unit}")
+}
+
 fn format_text(report: &Report, full: bool) -> String {
     let mut out = String::new();
     out.push_str("SLOC by language:\n\n");
@@ -89,9 +111,9 @@ fn format_text(report: &Report, full: bool) -> String {
 
     if let Some(ref s) = report.schedule {
         out.push_str(&format!(
-            "{:44}= {:.1} person-months\n",
+            "{:44}= {}\n",
             "Basic COCOMO effort (organic)",
-            s.cocomo.effort_person_months
+            human_person_months(s.cocomo.effort_person_months)
         ));
         out.push_str(&format!(
             "{:44}= {}\n",
@@ -104,9 +126,9 @@ fn format_text(report: &Report, full: bool) -> String {
             s.cocomo.avg_people
         ));
         out.push_str(&format!(
-            "{:44}= {:.1} person-months\n",
+            "{:44}= {}\n",
             "COCOMO II effort (nominal)",
-            s.cocomo_ii.effort_person_months
+            human_person_months(s.cocomo_ii.effort_person_months)
         ));
         out.push_str(&format!(
             "{:44}= {}\n",
@@ -129,9 +151,9 @@ fn format_text(report: &Report, full: bool) -> String {
             s.putnam.avg_people
         ));
         out.push_str(&format!(
-            "{:44}= {:.1} person-months\n",
+            "{:44}= {}\n",
             "Halstead effort",
-            s.halstead_person_months
+            human_person_months(s.halstead_person_months)
         ));
     }
 
@@ -174,4 +196,21 @@ fn format_text(report: &Report, full: bool) -> String {
     }
 
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_human_person_months_units() {
+        assert_eq!(human_person_months(36.0), "3.0 person-years");
+        assert_eq!(human_person_months(12.0), "1.0 person-years");
+        assert_eq!(human_person_months(11.9), "11.9 person-months");
+        assert_eq!(human_person_months(2.0), "2.0 person-months");
+        assert_eq!(human_person_months(1.5), "6.5 person-weeks");
+        assert_eq!(human_person_months(0.5), "2.2 person-weeks");
+        assert_eq!(human_person_months(0.1), "3.0 person-days");
+        assert_eq!(human_person_months(0.0), "0.0 person-months");
+    }
 }
