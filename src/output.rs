@@ -1,5 +1,6 @@
 use crate::color::{Colors, logo_colors};
 use crate::report::Report;
+use crate::history::HistoryReport;
 
 pub enum OutputFormat {
     Text,
@@ -222,6 +223,57 @@ fn format_text(report: &Report, full: bool, colors: Colors) -> String {
         perf.push_str(&format!("{:44}= {} hits / {} misses\n", "Cache", report.cache_hits, report.cache_misses));
     }
     out.push_str(&colors.gray(&perf));
+
+    out
+}
+
+/// Format the git-history report.
+pub fn format_history(report: &HistoryReport, colors: Colors) -> String {
+    let mut out = String::new();
+    out.push_str("Git history:\n\n");
+    out.push_str(&format!("{:44}= {}\n", "Commits analyzed", report.commits));
+    out.push_str(&format!("{:44}= {}\n", "Lines added", report.total_added_lines));
+    out.push_str(&format!("{:44}= {}\n", "Lines removed", report.total_removed_lines));
+    out.push_str(&format!("{:44}= {}\n", "Changed tokens (Claude)", report.total_changed_tokens));
+
+    if let Some(llm) = &report.llm_changed_tokens {
+        out.push_str(&format!("{:44}= {}\n", "Changed tokens (DeepSeek V4)", llm.deepseek_v4));
+    }
+
+    if !report.by_language.is_empty() {
+        out.push_str("\nChanged lines by language:\n\n");
+        for lang in &report.by_language {
+            let name_field = format!("{:12}", lang.name);
+            let name_field = match logo_colors(&lang.name) {
+                Some(lc) => match lc.bg {
+                    Some(bg) => colors.on(&name_field, lc.fg, bg),
+                    None => colors.fg(&name_field, lc.fg),
+                },
+                None => name_field,
+            };
+            out.push_str(&format!(
+                "{} +{:>8}  -{:>8}  {:>12} tokens\n",
+                name_field, lang.added_lines, lang.removed_lines, lang.changed_tokens
+            ));
+        }
+    }
+
+    if !report.ai_estimates.is_empty() {
+        out.push_str("\n--- AI time to process ---\n\n");
+        for e in &report.ai_estimates {
+            out.push_str(&format!(
+                "{:44}= {} ({} / 5-hour window)\n",
+                e.plan, human_duration(e.elapsed_seconds), e.tokens_per_5h
+            ));
+            out.push_str(&format!(
+                "  {:44}= {} changed tokens; {} 5-hour windows\n",
+                "",
+                e.changed_tokens, e.windows_5h
+            ));
+        }
+        out.push_str("\nCalibration is approximate (Anthropic publishes plan multiples,\n");
+        out.push_str("not absolute token numbers); override with --ai-budget.\n");
+    }
 
     out
 }

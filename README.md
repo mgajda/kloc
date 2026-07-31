@@ -50,6 +50,9 @@ kloc --full             # show detailed Halstead/McCabe metrics
 kloc --sloc-only        # skip complexity analysis (faster)
 kloc --no-cache         # disable the on-disk result cache
 kloc --color always     # force colors (auto/always/never; default auto)
+kloc --history          # analyze git history (changed tokens, AI time to process)
+kloc --history --ai-plan pro   # calibrate AI estimate on Claude Pro (or max5, max20)
+kloc --history --ai-budget 50000  # override the 5-hour token budget
 ```
 
 Output is concise by default: per-language SLOC, total code/comment lines,
@@ -76,6 +79,22 @@ Token counts are always computed:
     including its NFKC normalization.
   These lines only appear when the binary was built with
   `cargo install --path . --features tokens`.
+
+## History mode
+
+`kloc --history` streams `git log -p` and counts the tokens changed
+(added + modified + removed) across the repository's commit history, per
+language, then estimates how long it would take to process those tokens on a
+Claude subscription plan — Claude Pro / Max 5x / Max 20x (default Max 20x),
+selected with `--ai-plan`. Build with `--features tokens` so the changed-token
+count is real; without it the token counts are zero.
+
+The plan budgets are **approximate calibration points**: Anthropic's help
+centre publishes only the relative plan multiples (Max 5x = 5× Pro, Max 20x =
+20× Pro), not absolute token numbers. The Pro baseline (~44k tokens per 5-hour
+window) follows the widely reported figure (faros.ai, Dec 2025; Claude Code
+5-hour limits were doubled in May 2026). Override with `--ai-budget <tokens>`
+if you want a different allowance.
 
 ## Packaging status
 

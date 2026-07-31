@@ -8,9 +8,20 @@ fn main() {
     } else {
         args.paths.clone()
     };
-    let output_format = if args.json { OutputFormat::Json } else { OutputFormat::Text };
     let color = kloc::color::Colors::from_mode(args.color);
     let filter = LanguageFilter::from(&args);
+
+    if args.history {
+        let plan = args.ai_plan.unwrap_or(kloc::history::AiPlan::Max20);
+        let report = match kloc::history::run_history(&paths, &filter, &[plan], args.ai_budget) {
+            Ok(r) => r,
+            Err(e) => { eprintln!("{e}"); std::process::exit(1); }
+        };
+        println!("{}", kloc::output::format_history(&report, color));
+        return;
+    }
+
+    let output_format = if args.json { OutputFormat::Json } else { OutputFormat::Text };
     let opts = kloc::RunOptions::from_args(&args);
     let report = kloc::run(&paths, &filter, &opts);
     let full = args.full;

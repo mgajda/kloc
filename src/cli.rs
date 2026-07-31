@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 use clap::Parser;
 use crate::color::ColorMode;
+use crate::history::AiPlan;
 
 #[derive(Parser, Debug)]
 #[command(name = "kloc", version, about = "Count Source Lines of Code")]
@@ -33,4 +34,13 @@ pub struct Args {
 
     #[arg(long, value_enum, default_value_t = ColorMode::Auto, help = "When to use colors in output (auto, always, never)")]
     pub color: ColorMode,
+
+    #[arg(long, help = "Analyze git history: changed tokens per commit, AI-plan time to process them, and effort estimate")]
+    pub history: bool,
+
+    #[arg(long, value_enum, help = "Claude plan used to calibrate the AI time-to-process estimate (default: max20)")]
+    pub ai_plan: Option<AiPlan>,
+
+    #[arg(long, help = "Override the Claude plan's token allowance per 5-hour window (tokens)")]
+    pub ai_budget: Option<u64>,
 }

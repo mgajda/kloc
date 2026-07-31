@@ -13,6 +13,7 @@ pub mod complexity;
 pub mod schedule;
 pub mod cache;
 pub mod color;
+pub mod history;
 
 #[cfg(feature = "tokens")]
 pub mod tokens;
