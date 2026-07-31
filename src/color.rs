@@ -105,6 +105,21 @@ impl Colors {
         let code = if n == 7 { 37 } else { 30 + n.min(6) };
         self.wrap(s, &format!("{code}"))
     }
+
+    /// Standard 8-colour background by palette index (1=red..7=white).
+    /// Emits `\x1b[4{n}m` (background colour).
+    pub fn bg(&self, s: &str, n: u8) -> String {
+        let code = if n == 7 { 47 } else { 40 + n.min(6) };
+        self.wrap(s, &format!("{code}"))
+    }
+
+    /// Foreground over a background: `\x1b[3fg;4bg m`. Palette indices
+    /// 1=red..7=white for both.
+    pub fn on_bg(&self, s: &str, fg: u8, bg: u8) -> String {
+        let f = if fg == 7 { 37 } else { 30 + fg.min(6) };
+        let b = if bg == 7 { 47 } else { 40 + bg.min(6) };
+        self.wrap(s, &format!("{f};{b}"))
+    }
 }
 
 /// A language's colours: the foreground is the GitHub colour, and `bg` is a
