@@ -9,7 +9,7 @@ repository = "https://github.com/mgajda/kloc"
 readme = "README.md"
 
 [features]
-default = ["all-programming-languages"]
+default = ["all-programming-languages", "tokens"]
 tokens = ["dep:gigatoken", "dep:unicode-normalization", "dep:base64"]
 
 # All languages

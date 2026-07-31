@@ -232,29 +232,30 @@ pub fn run_history(
         } else if line.starts_with("+++") || line.starts_with("---") {
             continue;
         } else if let Some(content) = line.strip_prefix('+') {
-            if let Some(spec) = current_spec
-                && filter.matches(spec) {
-                    let name = spec.name.to_string();
-                    let e = per_lang.entry(name).or_default();
-                    if let Some(f) = &current_file {
-                        e.files.insert(f.clone());
-                    }
-                    e.added_lines += 1;
-                    e.added_bytes.push(b'\n');
-                    e.added_bytes.extend_from_slice(content.as_bytes());
+            let spec = current_spec;
+            let name = spec.map(|s| s.name.to_string()).unwrap_or_else(|| "Other".to_string());
+            if spec.is_none_or(|s| filter.matches(s)) {
+                let e = per_lang.entry(name).or_default();
+                if let Some(f) = &current_file {
+                    e.files.insert(f.clone());
                 }
-        } else if let Some(content) = line.strip_prefix('-')
-            && let Some(spec) = current_spec
-                && filter.matches(spec) {
-                    let name = spec.name.to_string();
-                    let e = per_lang.entry(name).or_default();
-                    if let Some(f) = &current_file {
-                        e.files.insert(f.clone());
-                    }
-                    e.removed_lines += 1;
-                    e.removed_bytes.push(b'\n');
-                    e.removed_bytes.extend_from_slice(content.as_bytes());
+                e.added_lines += 1;
+                e.added_bytes.push(b'\n');
+                e.added_bytes.extend_from_slice(content.as_bytes());
+            }
+        } else if let Some(content) = line.strip_prefix('-') {
+            let spec = current_spec;
+            let name = spec.map(|s| s.name.to_string()).unwrap_or_else(|| "Other".to_string());
+            if spec.is_none_or(|s| filter.matches(s)) {
+                let e = per_lang.entry(name).or_default();
+                if let Some(f) = &current_file {
+                    e.files.insert(f.clone());
                 }
+                e.removed_lines += 1;
+                e.removed_bytes.push(b'\n');
+                e.removed_bytes.extend_from_slice(content.as_bytes());
+            }
+        }
     }
     flush(&mut per_lang, &mut llm, &mut total_added, &mut total_removed);
 
