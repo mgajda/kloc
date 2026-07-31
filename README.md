@@ -60,9 +60,13 @@ Token counts are always computed:
 - **Tree-sitter tokens** — leaf tokens and named nodes of the concrete
   syntax tree (no extra dependency).
 - **LLM tokens** — counted with the gigatoken tokenizer (a fork that builds
-  on stable Rust) using an embedded **DeepSeek-V4-Flash** byte-level BPE
-  vocabulary, matching the HuggingFace reference tokenizer exactly.
-  This line only appears when the binary was built with
+  on stable Rust) using two embedded tokenizer specifications:
+  - **DeepSeek V4** — the `deepseek-ai/DeepSeek-V4-Flash` byte-level BPE
+    tokenizer (MIT).
+  - **Claude Sonnet** — the official Anthropic `claude.json` (same file as
+    in `@anthropic-ai/tokenizer`, MIT), matching the reference `countTokens`
+    including its NFKC normalization.
+  These lines only appear when the binary was built with
   `cargo install --path . --features tokens`.
 
 ## Packaging status

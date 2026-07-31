@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use serde::Serialize;
 use crate::complexity;
 use crate::schedule;
-use crate::Performance;
+use crate::{Performance, TokenCounts};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct LanguageTotal {
@@ -22,7 +22,7 @@ pub struct Report {
     pub mccabe: Option<complexity::McCabeMetrics>,
     pub nodes: complexity::NodeCounts,
     pub schedule: Option<schedule::ScheduleReport>,
-    pub llm_tokens: Option<u64>,
+    pub llm_tokens: Option<TokenCounts>,
     pub performance: Performance,
     pub cache_hits: u64,
     pub cache_misses: u64,
@@ -36,7 +36,7 @@ impl Report {
         cx_mccabe: BTreeMap<String, complexity::McCabeMetrics>,
         nodes: complexity::NodeCounts,
         performance: Performance,
-        llm_tokens: Option<u64>,
+        llm_tokens: Option<TokenCounts>,
         cache_hits: u64,
         cache_misses: u64,
     ) -> Self {

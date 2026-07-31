@@ -59,7 +59,8 @@ fn format_text(report: &Report, full: bool) -> String {
     out.push('\n');
     out.push_str("--- Tokens ---\n\n");
     if let Some(t) = report.llm_tokens {
-        out.push_str(&format!("{:44}= {}\n", "LLM tokens (DeepSeek V4)", t));
+        out.push_str(&format!("{:44}= {}\n", "LLM tokens (DeepSeek V4)", t.deepseek_v4));
+        out.push_str(&format!("{:44}= {}\n", "LLM tokens (Claude Sonnet)", t.claude_sonnet));
     }
     out.push_str(&format!("{:44}= {}\n", "Tree-sitter leaf tokens", report.nodes.leaf_tokens));
     out.push_str(&format!("{:44}= {}\n", "Tree-sitter named nodes", report.nodes.named_nodes));

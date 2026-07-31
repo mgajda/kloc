@@ -100,6 +100,12 @@ pub struct Performance {
     pub functions_per_sec: f64,
 }
 
+#[derive(Debug, Clone, Default, Copy, serde::Serialize)]
+pub struct TokenCounts {
+    pub deepseek_v4: u64,
+    pub claude_sonnet: u64,
+}
+
 #[derive(Debug, Clone, serde::Serialize)]
 struct FileResult {
     name: String,
@@ -108,7 +114,7 @@ struct FileResult {
     mtime_ns: u64,
     count: counter::CountResult,
     cx: Option<complexity::ComplexityResult>,
-    llm_tokens: u64,
+    llm_tokens: TokenCounts,
 }
 
 pub fn run(paths: &[PathBuf], filter: &LanguageFilter, opts: &RunOptions) -> Report {
@@ -145,7 +151,7 @@ pub fn run(paths: &[PathBuf], filter: &LanguageFilter, opts: &RunOptions) -> Rep
                 #[cfg(feature = "tokens")]
                 { tokens::count_tokens(&source) }
                 #[cfg(not(feature = "tokens"))]
-                { 0 }
+                { TokenCounts::default() }
             };
 
             Some(FileResult {
@@ -165,11 +171,12 @@ pub fn run(paths: &[PathBuf], filter: &LanguageFilter, opts: &RunOptions) -> Rep
     let mut nodes_agg = complexity::NodeCounts::default();
     let mut total_bytes: u64 = 0;
     let mut total_functions: u64 = 0;
-    let mut token_count: u64 = 0;
+    let mut token_count = TokenCounts::default();
 
     for r in &results {
         total_bytes += r.bytes;
-        token_count += r.llm_tokens;
+        token_count.deepseek_v4 += r.llm_tokens.deepseek_v4;
+        token_count.claude_sonnet += r.llm_tokens.claude_sonnet;
         nodes_agg.named_nodes += r.count.nodes.named_nodes;
         nodes_agg.leaf_tokens += r.count.nodes.leaf_tokens;
         let e = counts.entry(r.name.clone()).or_insert((0, 0, 0));
@@ -211,7 +218,6 @@ pub fn run(paths: &[PathBuf], filter: &LanguageFilter, opts: &RunOptions) -> Rep
     let llm_tokens = Some(token_count);
     #[cfg(not(feature = "tokens"))]
     let llm_tokens = None;
-
     Report::from_data(
         counts, halstead_agg, mccabe_agg, nodes_agg,
         perf, llm_tokens, cache_hits, cache_misses,
