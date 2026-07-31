@@ -49,12 +49,20 @@ kloc --only-programming
 kloc --full             # show detailed Halstead/McCabe metrics
 kloc --sloc-only        # skip complexity analysis (faster)
 kloc --no-cache         # disable the on-disk result cache
+kloc --color always     # force colors (auto/always/never; default auto)
 ```
 
 Output is concise by default: per-language SLOC, total code/comment lines,
 token counts, Halstead time-to-implement, average cyclomatic complexity,
-COCOMO / COCOMO II / Putnam schedules with optimal team size, and a
-performance summary (GB/s, files/s, declarations/s, total runtime).
+a schedule table (rows = Schedule/Effort/Team size, columns = methodologies),
+and a performance summary (GB/s, files/s, declarations/s, total runtime).
+
+When stdout is a terminal, each language is shown in its GitHub logo colour
+(from `ozh/github-colors`; unique in both hex and the 256-colour palette,
+with a darker derived background for two-tone logos), the schedule-table
+columns are colour-coded, and the performance section is dimmed grey.
+Colour is auto-detected but can be forced or disabled with
+`--color always|never` (honours `NO_COLOR`).
 
 Token counts are always computed:
 - **Tree-sitter tokens** — leaf tokens and named nodes of the concrete

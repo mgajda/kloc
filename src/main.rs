@@ -9,9 +9,10 @@ fn main() {
         args.paths.clone()
     };
     let output_format = if args.json { OutputFormat::Json } else { OutputFormat::Text };
+    let color = kloc::color::Colors::from_mode(args.color);
     let filter = LanguageFilter::from(&args);
     let opts = kloc::RunOptions::from_args(&args);
     let report = kloc::run(&paths, &filter, &opts);
     let full = args.full;
-    println!("{}", kloc::output::format(&report, &output_format, full));
+    println!("{}", kloc::output::format(&report, &output_format, full, color));
 }

@@ -37,16 +37,20 @@ fn test_opts() -> kloc::RunOptions {
     }
 }
 
+fn test_colors() -> kloc::color::Colors {
+    kloc::color::Colors::from_mode(kloc::color::ColorMode::Never)
+}
+
 fn run_and_get_text(paths: &[PathBuf]) -> String {
     let filter = default_filter();
     let report = kloc::run(paths, &filter, &test_opts());
-    kloc::output::format(&report, &kloc::output::OutputFormat::Text, true)
+    kloc::output::format(&report, &kloc::output::OutputFormat::Text, true, test_colors())
 }
 
 fn run_and_get_json(paths: &[PathBuf]) -> serde_json::Value {
     let filter = default_filter();
     let report = kloc::run(paths, &filter, &test_opts());
-    let json = kloc::output::format(&report, &kloc::output::OutputFormat::Json, true);
+    let json = kloc::output::format(&report, &kloc::output::OutputFormat::Json, true, test_colors());
     serde_json::from_str(&json).unwrap()
 }
 
@@ -306,7 +310,7 @@ fn integration_json_parseable() {
     let json_str = {
         let filter = default_filter();
         let report = kloc::run(&[dir.clone()], &filter, &test_opts());
-        kloc::output::format(&report, &kloc::output::OutputFormat::Json, true)
+        kloc::output::format(&report, &kloc::output::OutputFormat::Json, true, test_colors())
     };
 
     let parsed: serde_json::Value = serde_json::from_str(&json_str)

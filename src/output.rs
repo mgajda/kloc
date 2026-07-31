@@ -1,3 +1,4 @@
+use crate::color::{Colors, logo_colors};
 use crate::report::Report;
 
 pub enum OutputFormat {
@@ -5,10 +6,10 @@ pub enum OutputFormat {
     Json,
 }
 
-pub fn format(report: &Report, format: &OutputFormat, full: bool) -> String {
+pub fn format(report: &Report, format: &OutputFormat, full: bool, colors: Colors) -> String {
     match format {
         OutputFormat::Json => serde_json::to_string_pretty(report).unwrap(),
-        OutputFormat::Text => format_text(report, full),
+        OutputFormat::Text => format_text(report, full, colors),
     }
 }
 
@@ -63,14 +64,22 @@ fn human_person_months(pm: f64) -> String {
     format!("{value:.1} {unit}")
 }
 
-fn format_text(report: &Report, full: bool) -> String {
+fn format_text(report: &Report, full: bool, colors: Colors) -> String {
     let mut out = String::new();
     out.push_str("SLOC by language:\n\n");
     for lang in &report.by_language {
         let pct = if report.total_sloc > 0 {
             (lang.sloc as f64 / report.total_sloc as f64) * 100.0
         } else { 0.0 };
-        out.push_str(&format!("{:12} {:>8} ({:.2}%)\n", lang.name, lang.sloc, pct));
+        let name_field = format!("{:12}", lang.name);
+        let name_field = match logo_colors(&lang.name) {
+            Some(lc) => match lc.bg {
+                Some(bg) => colors.on(&name_field, lc.fg, bg),
+                None => colors.fg(&name_field, lc.fg),
+            },
+            None => name_field,
+        };
+        out.push_str(&format!("{} {:>8} ({:.2}%)\n", name_field, lang.sloc, pct));
     }
 
     out.push('\n');
@@ -110,51 +119,68 @@ fn format_text(report: &Report, full: bool) -> String {
     }
 
     if let Some(ref s) = report.schedule {
-        out.push_str(&format!(
-            "{:44}= {}\n",
-            "Basic COCOMO effort (organic)",
-            human_person_months(s.cocomo.effort_person_months)
-        ));
-        out.push_str(&format!(
-            "{:44}= {}\n",
-            "Basic COCOMO schedule",
-            human_duration(s.cocomo.schedule_months * 30.44 * 24.0 * 3600.0)
-        ));
-        out.push_str(&format!(
-            "{:44}= {:.1}\n",
-            "Optimal team size (COCOMO PM / TDEV)",
-            s.cocomo.avg_people
-        ));
-        out.push_str(&format!(
-            "{:44}= {}\n",
-            "COCOMO II effort (nominal)",
-            human_person_months(s.cocomo_ii.effort_person_months)
-        ));
-        out.push_str(&format!(
-            "{:44}= {}\n",
-            "COCOMO II schedule",
-            human_duration(s.cocomo_ii.schedule_months * 30.44 * 24.0 * 3600.0)
-        ));
-        out.push_str(&format!(
-            "{:44}= {:.1}\n",
-            "Optimal team size (COCOMO II)",
-            s.cocomo_ii.avg_people
-        ));
-        out.push_str(&format!(
-            "{:44}= {}\n",
-            "Putnam schedule",
-            human_duration(s.putnam.schedule_years * 365.25 * 24.0 * 3600.0)
-        ));
-        out.push_str(&format!(
-            "{:44}= {:.1}\n",
-            "Optimal team size (Putnam)",
-            s.putnam.avg_people
-        ));
-        out.push_str(&format!(
-            "{:44}= {}\n",
-            "Halstead effort",
-            human_person_months(s.halstead_person_months)
-        ));
+        out.push_str("\n--- Schedule ---\n\n");
+        // Rows: Schedule / Effort / Team size. Columns: methodologies, each
+        // with a distinct standard colour to ease reading. Cells a model
+        // does not produce are shown as "—".
+        let months = |m: f64| human_duration(m * 30.44 * 24.0 * 3600.0);
+
+        struct Col<'a> {
+            label: &'a str,
+            color: u8,
+            schedule: String,
+            effort: String,
+            team: String,
+        }
+        let cols = [
+            Col { label: "Basic COCOMO", color: 4, schedule: months(s.cocomo.schedule_months), effort: human_person_months(s.cocomo.effort_person_months), team: format!("{:.1}", s.cocomo.avg_people) },
+            Col { label: "COCOMO II", color: 2, schedule: months(s.cocomo_ii.schedule_months), effort: human_person_months(s.cocomo_ii.effort_person_months), team: format!("{:.1}", s.cocomo_ii.avg_people) },
+            Col { label: "Putnam", color: 3, schedule: months(s.putnam.schedule_months), effort: "—".to_string(), team: format!("{:.1}", s.putnam.avg_people) },
+            Col { label: "Halstead", color: 5, schedule: "—".to_string(), effort: human_person_months(s.halstead_person_months), team: "—".to_string() },
+        ];
+
+        let mut widths = [10, 0, 0, 0, 0];
+        for (i, c) in cols.iter().enumerate() {
+            widths[i + 1] = c.label.len().max(c.schedule.len()).max(c.effort.len()).max(c.team.len());
+        }
+        let total = widths.iter().sum::<usize>() + 2 * cols.len();
+        let _ = total;
+
+        let line = |label: &str, values: [String; 4], color_fns: [Option<u8>; 4]| {
+            let mut l = format!("{:<width$}", label, width = widths[0]);
+            for (i, v) in values.iter().enumerate() {
+                let cell = format!("{:<width$}", v, width = widths[i + 1]);
+                let cell = match color_fns[i] {
+                    Some(c) => colors.ansi(&cell, c),
+                    None => cell,
+                };
+                l.push_str(&format!("  {cell}"));
+            }
+            l
+        };
+
+        // Header: methodology names coloured per column.
+        let mut hdr = format!("{:<width$}", "Methodology", width = widths[0]);
+        for (i, c) in cols.iter().enumerate() {
+            let cell = format!("{:<width$}", c.label, width = widths[i + 1]);
+            hdr.push_str(&format!("  {}", colors.ansi(&cell, c.color)));
+        }
+        out.push_str(&format!("{hdr}\n"));
+
+        let schedule_vals = [
+            cols[0].schedule.clone(), cols[1].schedule.clone(), cols[2].schedule.clone(), cols[3].schedule.clone(),
+        ];
+        out.push_str(&format!("{}\n", line("Schedule", schedule_vals, [Some(4), Some(2), Some(3), Some(5)])));
+
+        let effort_vals = [
+            cols[0].effort.clone(), cols[1].effort.clone(), cols[2].effort.clone(), cols[3].effort.clone(),
+        ];
+        out.push_str(&format!("{}\n", line("Effort", effort_vals, [Some(4), Some(2), Some(3), Some(5)])));
+
+        let team_vals = [
+            cols[0].team.clone(), cols[1].team.clone(), cols[2].team.clone(), cols[3].team.clone(),
+        ];
+        out.push_str(&format!("{}\n", line("Team size", team_vals, [Some(4), Some(2), Some(3), Some(5)])));
     }
 
     if full {
@@ -182,18 +208,20 @@ fn format_text(report: &Report, full: bool) -> String {
     }
 
     out.push('\n');
-    out.push_str("--- Performance ---\n\n");
+    let mut perf = String::new();
+    perf.push_str("--- Performance ---\n\n");
     let p = &report.performance;
     let gbps = if p.elapsed_secs > 0.0 {
         (p.bytes_parsed as f64 / 1e9) / p.elapsed_secs
     } else { 0.0 };
-    out.push_str(&format!("{:44}= {:.3} s\n", "Total runtime", p.elapsed_secs));
-    out.push_str(&format!("{:44}= {:.3} GB/s\n", "Sources parsed", gbps));
-    out.push_str(&format!("{:44}= {:.1} files/s\n", "Files", p.files_per_sec));
-    out.push_str(&format!("{:44}= {:.1} declarations/s\n", "Declarations (functions)", p.functions_per_sec));
+    perf.push_str(&format!("{:44}= {:.3} s\n", "Total runtime", p.elapsed_secs));
+    perf.push_str(&format!("{:44}= {:.3} GB/s\n", "Sources parsed", gbps));
+    perf.push_str(&format!("{:44}= {:.1} files/s\n", "Files", p.files_per_sec));
+    perf.push_str(&format!("{:44}= {:.1} declarations/s\n", "Declarations (functions)", p.functions_per_sec));
     if report.cache_hits > 0 || report.cache_misses > 0 {
-        out.push_str(&format!("{:44}= {} hits / {} misses\n", "Cache", report.cache_hits, report.cache_misses));
+        perf.push_str(&format!("{:44}= {} hits / {} misses\n", "Cache", report.cache_hits, report.cache_misses));
     }
+    out.push_str(&colors.gray(&perf));
 
     out
 }

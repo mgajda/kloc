@@ -12,6 +12,7 @@ pub mod cli;
 pub mod complexity;
 pub mod schedule;
 pub mod cache;
+pub mod color;
 
 #[cfg(feature = "tokens")]
 pub mod tokens;
@@ -171,12 +172,16 @@ pub fn run(paths: &[PathBuf], filter: &LanguageFilter, opts: &RunOptions) -> Rep
     let mut nodes_agg = complexity::NodeCounts::default();
     let mut total_bytes: u64 = 0;
     let mut total_functions: u64 = 0;
+    #[cfg(feature = "tokens")]
     let mut token_count = TokenCounts::default();
 
     for r in &results {
         total_bytes += r.bytes;
-        token_count.deepseek_v4 += r.llm_tokens.deepseek_v4;
-        token_count.claude_sonnet += r.llm_tokens.claude_sonnet;
+        #[cfg(feature = "tokens")]
+        {
+            token_count.deepseek_v4 += r.llm_tokens.deepseek_v4;
+            token_count.claude_sonnet += r.llm_tokens.claude_sonnet;
+        }
         nodes_agg.named_nodes += r.count.nodes.named_nodes;
         nodes_agg.leaf_tokens += r.count.nodes.leaf_tokens;
         let e = counts.entry(r.name.clone()).or_insert((0, 0, 0));

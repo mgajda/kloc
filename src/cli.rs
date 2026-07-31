@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 use clap::Parser;
+use crate::color::ColorMode;
 
 #[derive(Parser, Debug)]
 #[command(name = "kloc", version, about = "Count Source Lines of Code")]
@@ -29,4 +30,7 @@ pub struct Args {
 
     #[arg(long, help = "Disable on-disk result caching")]
     pub no_cache: bool,
+
+    #[arg(long, value_enum, default_value_t = ColorMode::Auto, help = "When to use colors in output (auto, always, never)")]
+    pub color: ColorMode,
 }
