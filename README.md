@@ -44,11 +44,23 @@ kloc src/               # count specific directory
 kloc file1.rs file2.c   # count specific files
 kloc --json             # JSON output
 kloc --only rust        # only Rust files
-kloc --exclude json,yaml # All machine language files
-                         # except json and yaml
-kloc --only-programming # count only programming languages
-                        # (not configuration and markup languages)
+kloc --exclude json,yaml
+kloc --only-programming
+kloc --full             # show detailed Halstead/McCabe metrics
+kloc --sloc-only        # skip complexity analysis (faster)
+kloc --nodes            # count tree-sitter named nodes and leaf tokens
+kloc --tokens           # count LLM tokens (GPT-2 BPE; needs --features tokens)
+kloc --no-cache         # disable the on-disk result cache
 ```
+
+Output is concise by default: per-language SLOC, total code/comment lines,
+Halstead time-to-implement, average cyclomatic complexity, COCOMO / COCOMO II /
+Putnam schedules with optimal team size, and a performance summary
+(GB/s, files/s, declarations/s, total runtime).
+
+The `--tokens` mode uses the gigatoken tokenizer (a fork that builds on stable
+Rust) with an embedded GPT-2 vocabulary; build with
+`cargo install --path . --features tokens`.
 
 ## Packaging status
 
