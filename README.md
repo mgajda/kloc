@@ -48,19 +48,22 @@ kloc --exclude json,yaml
 kloc --only-programming
 kloc --full             # show detailed Halstead/McCabe metrics
 kloc --sloc-only        # skip complexity analysis (faster)
-kloc --nodes            # count tree-sitter named nodes and leaf tokens
-kloc --tokens           # count LLM tokens (GPT-2 BPE; needs --features tokens)
 kloc --no-cache         # disable the on-disk result cache
 ```
 
 Output is concise by default: per-language SLOC, total code/comment lines,
-Halstead time-to-implement, average cyclomatic complexity, COCOMO / COCOMO II /
-Putnam schedules with optimal team size, and a performance summary
-(GB/s, files/s, declarations/s, total runtime).
+token counts, Halstead time-to-implement, average cyclomatic complexity,
+COCOMO / COCOMO II / Putnam schedules with optimal team size, and a
+performance summary (GB/s, files/s, declarations/s, total runtime).
 
-The `--tokens` mode uses the gigatoken tokenizer (a fork that builds on stable
-Rust) with an embedded GPT-2 vocabulary; build with
-`cargo install --path . --features tokens`.
+Token counts are always computed:
+- **Tree-sitter tokens** — leaf tokens and named nodes of the concrete
+  syntax tree (no extra dependency).
+- **LLM tokens** — counted with the gigatoken tokenizer (a fork that builds
+  on stable Rust) using an embedded **DeepSeek-V4-Flash** byte-level BPE
+  vocabulary, matching the HuggingFace reference tokenizer exactly.
+  This line only appears when the binary was built with
+  `cargo install --path . --features tokens`.
 
 ## Packaging status
 

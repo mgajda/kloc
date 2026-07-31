@@ -33,8 +33,6 @@ fn default_filter() -> kloc::LanguageFilter {
 fn test_opts() -> kloc::RunOptions {
     kloc::RunOptions {
         sloc_only: false,
-        nodes: false,
-        tokens: false,
         cache: kloc::cache::Cache::new(false),
     }
 }

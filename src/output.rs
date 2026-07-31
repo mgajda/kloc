@@ -56,15 +56,13 @@ fn format_text(report: &Report, full: bool) -> String {
     out.push_str(&format!("{:44}= {}\n", "Total non-empty lines with comments", report.total_comments));
     out.push_str(&format!("{:44}= {}\n", "Total files", report.total_files));
 
-    if let Some(t) = report.tokens {
-        out.push_str(&format!("{:44}= {}\n", "LLM tokens (GPT-2 BPE)", t));
+    out.push('\n');
+    out.push_str("--- Tokens ---\n\n");
+    if let Some(t) = report.llm_tokens {
+        out.push_str(&format!("{:44}= {}\n", "LLM tokens (DeepSeek V4)", t));
     }
-
-    if let Some(ref n) = report.nodes {
-        out.push_str("\n--- Tree-sitter CST ---\n\n");
-        out.push_str(&format!("{:44}= {}\n", "Named nodes", n.named_nodes));
-        out.push_str(&format!("{:44}= {}\n", "Leaf tokens", n.leaf_tokens));
-    }
+    out.push_str(&format!("{:44}= {}\n", "Tree-sitter leaf tokens", report.nodes.leaf_tokens));
+    out.push_str(&format!("{:44}= {}\n", "Tree-sitter named nodes", report.nodes.named_nodes));
 
     // Concise default: one complexity line + schedule.
     if let Some(ref h) = report.halstead {

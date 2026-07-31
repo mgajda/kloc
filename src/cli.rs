@@ -29,10 +29,4 @@ pub struct Args {
 
     #[arg(long, help = "Disable on-disk result caching")]
     pub no_cache: bool,
-
-    #[arg(long, help = "Count LLM tokens with the embedded GPT-2 tokenizer (build with --features tokens)")]
-    pub tokens: bool,
-
-    #[arg(long, help = "Count tree-sitter CST nodes and leaf tokens")]
-    pub nodes: bool,
 }

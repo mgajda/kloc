@@ -77,8 +77,6 @@ impl From<&cli::Args> for LanguageFilter {
 
 pub struct RunOptions {
     pub sloc_only: bool,
-    pub nodes: bool,
-    pub tokens: bool,
     pub cache: cache::Cache,
 }
 
@@ -86,8 +84,6 @@ impl RunOptions {
     pub fn from_args(args: &cli::Args) -> Self {
         RunOptions {
             sloc_only: args.sloc_only,
-            nodes: args.nodes,
-            tokens: args.tokens,
             cache: cache::Cache::new(!args.no_cache),
         }
     }
@@ -112,7 +108,7 @@ struct FileResult {
     mtime_ns: u64,
     count: counter::CountResult,
     cx: Option<complexity::ComplexityResult>,
-    tokens: u64,
+    llm_tokens: u64,
 }
 
 pub fn run(paths: &[PathBuf], filter: &LanguageFilter, opts: &RunOptions) -> Report {
@@ -145,18 +141,18 @@ pub fn run(paths: &[PathBuf], filter: &LanguageFilter, opts: &RunOptions) -> Rep
                 }
             } else { None };
 
-            let tokens = if opts.tokens {
+            let llm_tokens = {
                 #[cfg(feature = "tokens")]
                 { tokens::count_tokens(&source) }
                 #[cfg(not(feature = "tokens"))]
                 { 0 }
-            } else { 0 };
+            };
 
             Some(FileResult {
                 name: entry.language.name.to_string(),
                 bytes: size,
                 size, mtime_ns,
-                count, cx, tokens,
+                count, cx, llm_tokens,
             })
         })
         .collect();
@@ -173,7 +169,9 @@ pub fn run(paths: &[PathBuf], filter: &LanguageFilter, opts: &RunOptions) -> Rep
 
     for r in &results {
         total_bytes += r.bytes;
-        token_count += r.tokens;
+        token_count += r.llm_tokens;
+        nodes_agg.named_nodes += r.count.nodes.named_nodes;
+        nodes_agg.leaf_tokens += r.count.nodes.leaf_tokens;
         let e = counts.entry(r.name.clone()).or_insert((0, 0, 0));
         e.0 += r.count.sloc; e.1 += 1; e.2 += r.count.comments;
 
@@ -188,11 +186,6 @@ pub fn run(paths: &[PathBuf], filter: &LanguageFilter, opts: &RunOptions) -> Rep
             m.function_count += cx.mccabe.function_count;
             m.total_cyclomatic += cx.mccabe.total_cyclomatic;
             total_functions += cx.mccabe.function_count;
-
-            if opts.nodes {
-                nodes_agg.named_nodes += cx.nodes.named_nodes;
-                nodes_agg.leaf_tokens += cx.nodes.leaf_tokens;
-            }
         }
     }
 
@@ -214,9 +207,14 @@ pub fn run(paths: &[PathBuf], filter: &LanguageFilter, opts: &RunOptions) -> Rep
 
     let (cache_hits, cache_misses) = opts.cache.stats();
 
+    #[cfg(feature = "tokens")]
+    let llm_tokens = Some(token_count);
+    #[cfg(not(feature = "tokens"))]
+    let llm_tokens = None;
+
     Report::from_data(
         counts, halstead_agg, mccabe_agg, nodes_agg,
-        perf, token_count, cache_hits, cache_misses,
+        perf, llm_tokens, cache_hits, cache_misses,
     )
 }
 

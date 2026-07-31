@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 use tree_sitter::{Node, Parser};
+use crate::complexity::NodeCounts;
 use crate::language::LanguageSpec;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -7,6 +8,7 @@ pub struct CountResult {
     pub sloc: u64,
     pub comments: u64,
     pub blanks: u64,
+    pub nodes: NodeCounts,
 }
 
 impl CountResult {
@@ -16,14 +18,20 @@ impl CountResult {
 }
 
 pub fn count(source: &[u8], spec: &LanguageSpec) -> CountResult {
+    let empty = CountResult {
+        sloc: 0,
+        comments: 0,
+        blanks: line_count(source) as u64,
+        nodes: NodeCounts::default(),
+    };
     let mut parser = Parser::new();
     if parser.set_language(&spec.grammar()).is_err() {
-        return CountResult { sloc: 0, comments: 0, blanks: line_count(source) as u64 };
+        return empty;
     }
 
     let tree = match parser.parse(source, None) {
         Some(t) => t,
-        None => return CountResult { sloc: 0, comments: 0, blanks: line_count(source) as u64 },
+        None => return empty,
     };
 
     let root = tree.root_node();
@@ -32,6 +40,7 @@ pub fn count(source: &[u8], spec: &LanguageSpec) -> CountResult {
     let mut comment_ranges: Vec<(usize, usize)> = Vec::new();
     collect_comment_ranges(&root, &comment_kinds, &mut comment_ranges);
 
+    let nodes = count_nodes(&root);
     let total_lines = line_count(source);
     let mut line_is_comment = vec![false; total_lines];
 
@@ -78,7 +87,26 @@ pub fn count(source: &[u8], spec: &LanguageSpec) -> CountResult {
         }
     }
 
-    CountResult { sloc, comments, blanks }
+    CountResult { sloc, comments, blanks, nodes }
+}
+
+fn count_nodes(root: &Node) -> NodeCounts {
+    let mut nodes = NodeCounts::default();
+    let mut stack = vec![*root];
+    while let Some(node) = stack.pop() {
+        if node.is_named() {
+            nodes.named_nodes += 1;
+        }
+        if node.child_count() == 0 {
+            nodes.leaf_tokens += 1;
+        }
+        for i in (0..node.child_count()).rev() {
+            if let Some(child) = node.child(i as u32) {
+                stack.push(child);
+            }
+        }
+    }
+    nodes
 }
 
 fn collect_comment_ranges(

@@ -32,7 +32,7 @@ pub struct HenryKafuraMetrics {
     pub total_information_flow: f64,
 }
 
-#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct NodeCounts {
     pub named_nodes: u64,
     pub leaf_tokens: u64,
@@ -43,7 +43,6 @@ pub struct ComplexityResult {
     pub halstead: HalsteadMetrics,
     pub mccabe: McCabeMetrics,
     pub henry_kafura: HenryKafuraMetrics,
-    pub nodes: NodeCounts,
 }
 
 fn kind_is_function(kind: &str) -> bool {
@@ -165,20 +164,12 @@ pub fn analyze(source: &[u8], spec: &LanguageSpec) -> ComplexityResult {
         functions: u64,
         in_fn: bool,
         fn_depth: u32,
-        nodes: NodeCounts,
     }
 
     fn walk_node(node: tree_sitter::Node, source: &[u8], state: &mut WalkState) {
         let kind = node.kind();
         let is_named = node.is_named();
         let parent_kind = node.parent().as_ref().map_or("", |p| p.kind());
-
-        if is_named {
-            state.nodes.named_nodes += 1;
-        }
-        if node.child_count() == 0 {
-            state.nodes.leaf_tokens += 1;
-        }
 
         if (!is_named || node.child_count() == 0)
             && let Ok(raw) = node.utf8_text(source) {
@@ -218,12 +209,10 @@ pub fn analyze(source: &[u8], spec: &LanguageSpec) -> ComplexityResult {
         ops: &mut op_counts, opds: &mut opd_counts,
         decisions: 0, functions: 0,
         in_fn: false, fn_depth: 0,
-        nodes: NodeCounts::default(),
     };
     walk_node(root, source, &mut ws);
     let decisions = ws.decisions;
     let functions = ws.functions;
-    let nodes = ws.nodes;
 
     let n1 = op_counts.len() as u64;
     let n2 = opd_counts.len() as u64;
@@ -255,7 +244,7 @@ pub fn analyze(source: &[u8], spec: &LanguageSpec) -> ComplexityResult {
 
     let hk = HenryKafuraMetrics { total_modules: 0, total_fan_in: 0, total_fan_out: 0, total_information_flow: 0.0 };
 
-    ComplexityResult { halstead, mccabe, henry_kafura: hk, nodes }
+    ComplexityResult { halstead, mccabe, henry_kafura: hk }
 }
 
 fn empty_result() -> ComplexityResult {
@@ -269,6 +258,5 @@ fn empty_result() -> ComplexityResult {
         },
         mccabe: McCabeMetrics { function_count: 0, total_cyclomatic: 0, average_cyclomatic: 0.0 },
         henry_kafura: HenryKafuraMetrics { total_modules: 0, total_fan_in: 0, total_fan_out: 0, total_information_flow: 0.0 },
-        nodes: NodeCounts::default(),
     }
 }
