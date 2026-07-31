@@ -208,14 +208,14 @@ fn format_text(report: &Report, full: bool, colors: Colors) -> String {
         let token_cols: Vec<MetricCol> = match report.llm_tokens {
             Some(t) => vec![
                 MetricCol {
-                    group: "Token", label: "Claude Max", color: 6,
+                    group: "AI", label: "Claude Max", color: 6,
                     metric: if t.claude_sonnet > 0 { format!("{} tokens", human_tokens(t.claude_sonnet)) } else { "—".to_string() },
                     effort: if t.claude_sonnet > 0 { human_duration(crate::history::ai_time_seconds(t.claude_sonnet)) } else { "—".to_string() },
                     team: "—".to_string(),
                     schedule: if t.claude_sonnet > 0 { human_duration(crate::history::ai_time_seconds(t.claude_sonnet)) } else { "—".to_string() },
                 },
                 MetricCol {
-                    group: "Token", label: "OpenCode Go", color: 6,
+                    group: "AI", label: "DeepSeek V4 (OpenCode)", color: 6,
                     metric: if t.deepseek_v4 > 0 { format!("{} tokens", human_tokens(t.deepseek_v4)) } else { "—".to_string() },
                     effort: if t.deepseek_v4 > 0 { human_duration(crate::history::ai_time_seconds(t.deepseek_v4)) } else { "—".to_string() },
                     team: "—".to_string(),
@@ -230,21 +230,21 @@ fn format_text(report: &Report, full: bool, colors: Colors) -> String {
         // has one.
         let mut cols = vec![
             MetricCol {
-                group: "COCOMO", label: "COCOMO 1", color: 4,
+                group: "Kloc-driven", label: "COCOMO 1", color: 4,
                 metric: format!("{:.1} k lines of code", s.ksloc),
                 effort: human_person_months(s.cocomo.effort_person_months),
                 team: format!("{:.1}", s.cocomo.avg_people),
                 schedule: months(s.cocomo.schedule_months),
             },
             MetricCol {
-                group: "COCOMO", label: "COCOMO 2", color: 2,
+                group: "Kloc-driven", label: "COCOMO 2", color: 2,
                 metric: format!("{:.1} k lines of code", s.ksloc),
                 effort: human_person_months(s.cocomo_ii.effort_person_months),
                 team: format!("{:.1}", s.cocomo_ii.avg_people),
                 schedule: months(s.cocomo_ii.schedule_months),
             },
             MetricCol {
-                group: "Putnam", label: "Putnam", color: 3,
+                group: "Kloc-driven", label: "Putnam", color: 3,
                 metric: format!("{:.1} k lines of code", s.ksloc),
                 effort: human_person_months(s.cocomo_ii.effort_person_months),
                 team: format!("{:.1}", s.putnam.avg_people),
@@ -253,7 +253,7 @@ fn format_text(report: &Report, full: bool, colors: Colors) -> String {
             MetricCol {
                 group: "Halstead", label: "Halstead", color: 5,
                 metric: match report.halstead.as_ref() {
-                    Some(h) => format!("{:.0} volume", h.volume),
+                    Some(h) => format!("{} volume", human_tokens(h.volume as u64)),
                     None => "—".to_string(),
                 },
                 effort: human_person_months(s.halstead_person_months),

@@ -46,13 +46,27 @@ impl AiPlan {
     }
 }
 
-/// Elapsed seconds to process `tokens` on the default plan (Max 20x),
-/// i.e. the number of 5-hour windows times 5 hours. Used by the schedule
-/// table's "Token" methodology as its effort/schedule.
+/// Estimated ratio of input tokens consumed while debugging to output tokens
+/// written: producing N output tokens of code typically requires ~5×N input
+/// tokens (re-reading context, compiler/error feedback, iteration).
+const DEBUG_INPUT_MULTIPLIER: f64 = 5.0;
+
+/// The effective token load for writing and debugging `tokens` of output
+/// code: the input tokens needed are `DEBUG_INPUT_MULTIPLIER` × the output
+/// tokens, so the effective count is `tokens × (1 + DEBUG_INPUT_MULTIPLIER)`.
+pub fn effective_tokens(tokens: u64) -> u64 {
+    (tokens as f64 * (1.0 + DEBUG_INPUT_MULTIPLIER)).round() as u64
+}
+
+/// Elapsed seconds to process `tokens` of output code on the default plan
+/// (Max 20x), i.e. the number of 5-hour windows times 5 hours. The token
+/// cost is corrected for debugging first via [`effective_tokens`].
+/// Used by the schedule table's "Token" methodology as its effort/schedule.
 pub fn ai_time_seconds(tokens: u64) -> f64 {
     let budget = AiPlan::Max20.tokens_per_5h();
     if budget == 0 { return 0.0; }
-    let windows = tokens.div_ceil(budget);
+    let effective = effective_tokens(tokens);
+    let windows = effective.div_ceil(budget);
     windows as f64 * 5.0 * 3600.0
 }
 
@@ -165,7 +179,8 @@ pub fn run_history(
     let total_changed_tokens = llm.claude_sonnet;
     let ai_estimates = ai_plans.iter().map(|plan| {
         let budget = ai_budget_override.unwrap_or_else(|| plan.tokens_per_5h());
-        let windows_5h = if budget > 0 { total_changed_tokens.div_ceil(budget) } else { 0 };
+        let effective = effective_tokens(total_changed_tokens);
+        let windows_5h = if budget > 0 { effective.div_ceil(budget) } else { 0 };
         let elapsed_seconds = windows_5h as f64 * 5.0 * 3600.0;
         AiEstimate { plan: plan.label(), tokens_per_5h: budget, changed_tokens: total_changed_tokens, windows_5h, elapsed_seconds }
     }).collect();
