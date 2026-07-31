@@ -30,16 +30,25 @@ fn default_filter() -> kloc::LanguageFilter {
     }
 }
 
+fn test_opts() -> kloc::RunOptions {
+    kloc::RunOptions {
+        sloc_only: false,
+        nodes: false,
+        tokens: false,
+        cache: kloc::cache::Cache::new(false),
+    }
+}
+
 fn run_and_get_text(paths: &[PathBuf]) -> String {
     let filter = default_filter();
-    let report = kloc::run(paths, &filter);
-    kloc::output::format(&report, &kloc::output::OutputFormat::Text)
+    let report = kloc::run(paths, &filter, &test_opts());
+    kloc::output::format(&report, &kloc::output::OutputFormat::Text, true)
 }
 
 fn run_and_get_json(paths: &[PathBuf]) -> serde_json::Value {
     let filter = default_filter();
-    let report = kloc::run(paths, &filter);
-    let json = kloc::output::format(&report, &kloc::output::OutputFormat::Json);
+    let report = kloc::run(paths, &filter, &test_opts());
+    let json = kloc::output::format(&report, &kloc::output::OutputFormat::Json, true);
     serde_json::from_str(&json).unwrap()
 }
 
@@ -212,7 +221,7 @@ fn integration_filter_only_programming() {
         only_programming: true,
         only_machine: false,
     };
-    let report = kloc::run(&[dir], &filter);
+    let report = kloc::run(&[dir.clone()], &filter, &test_opts());
     assert_eq!(report.total_sloc, 1, "only Rust should be counted (1 sloc)");
     assert_eq!(report.by_language.len(), 1, "only Rust in results");
     assert_eq!(report.by_language[0].name, "Rust");
@@ -231,7 +240,7 @@ fn integration_filter_only_machine() {
         only_programming: false,
         only_machine: true,
     };
-    let report = kloc::run(&[dir], &filter);
+    let report = kloc::run(&[dir.clone()], &filter, &test_opts());
     assert!(report.total_sloc > 0, "machine languages should have sloc");
     assert!(report.by_language.iter().any(|l| l.name == "JSON"), "JSON should be included");
     assert!(report.by_language.iter().all(|l| l.name != "Rust"), "Rust should be excluded");
@@ -250,7 +259,7 @@ fn integration_filter_only_specific_languages() {
         only_programming: false,
         only_machine: false,
     };
-    let report = kloc::run(&[dir], &filter);
+    let report = kloc::run(&[dir.clone()], &filter, &test_opts());
     assert_eq!(report.total_sloc, 2, "only Python should be counted (2 sloc)");
     assert_eq!(report.by_language.len(), 1);
     assert_eq!(report.by_language[0].name, "Python");
@@ -268,7 +277,7 @@ fn integration_filter_exclude_languages() {
         only_programming: false,
         only_machine: false,
     };
-    let report = kloc::run(&[dir], &filter);
+    let report = kloc::run(&[dir.clone()], &filter, &test_opts());
     assert_eq!(report.total_sloc, 1, "only Rust should be counted");
     assert_eq!(report.by_language.len(), 1);
     assert_eq!(report.by_language[0].name, "Rust");
@@ -286,7 +295,7 @@ fn integration_filter_only_programming_and_only() {
         only_programming: false,
         only_machine: false,
     };
-    let report = kloc::run(&[dir], &filter);
+    let report = kloc::run(&[dir.clone()], &filter, &test_opts());
     assert_eq!(report.total_sloc, 1, "only Rust should be counted");
     assert_eq!(report.by_language[0].name, "Rust");
 }
@@ -298,8 +307,8 @@ fn integration_json_parseable() {
 
     let json_str = {
         let filter = default_filter();
-        let report = kloc::run(&[dir], &filter);
-        kloc::output::format(&report, &kloc::output::OutputFormat::Json)
+        let report = kloc::run(&[dir.clone()], &filter, &test_opts());
+        kloc::output::format(&report, &kloc::output::OutputFormat::Json, true)
     };
 
     let parsed: serde_json::Value = serde_json::from_str(&json_str)

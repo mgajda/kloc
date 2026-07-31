@@ -24,14 +24,13 @@ pub fn walk_files(paths: &[PathBuf], registry: &'static LanguageRegistry) -> Vec
                 })
                 .flatten()
             {
-                if entry.file_type().is_file() {
-                    if let Some(lang) = detect(entry.path(), registry) {
+                if entry.file_type().is_file()
+                    && let Some(lang) = detect(entry.path(), registry) {
                         entries.push(FileEntry {
                             path: entry.into_path(),
                             language: lang,
                         });
                     }
-                }
             }
         }
     }
@@ -46,11 +45,10 @@ fn detect(
         return Some(lang);
     }
     let mut buf = [0u8; 256];
-    if let Ok(mut f) = fs::File::open(path) {
-        if let Ok(n) = f.read(&mut buf) {
+    if let Ok(mut f) = fs::File::open(path)
+        && let Ok(n) = f.read(&mut buf) {
             let first_line_end = buf[..n].iter().position(|&b| b == b'\n').unwrap_or(n);
             return registry.detect_by_shebang(&buf[..first_line_end]);
         }
-    }
     None
 }

@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use tree_sitter::{Node, Parser};
 use crate::language::LanguageSpec;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct CountResult {
     pub sloc: u64,
     pub comments: u64,

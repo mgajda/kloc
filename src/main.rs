@@ -10,6 +10,8 @@ fn main() {
     };
     let output_format = if args.json { OutputFormat::Json } else { OutputFormat::Text };
     let filter = LanguageFilter::from(&args);
-    let report = kloc::run(&paths, &filter);
-    println!("{}", kloc::output::format(&report, &output_format));
+    let opts = kloc::RunOptions::from_args(&args);
+    let report = kloc::run(&paths, &filter, &opts);
+    let full = args.full;
+    println!("{}", kloc::output::format(&report, &output_format, full));
 }

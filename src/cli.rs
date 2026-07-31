@@ -20,4 +20,19 @@ pub struct Args {
 
     #[arg(long, help = "Only count machine/data languages")]
     pub only_machine: bool,
+
+    #[arg(long, help = "Only count SLOC/comments/blanks (skip complexity analysis)")]
+    pub sloc_only: bool,
+
+    #[arg(long, help = "Show detailed complexity and schedule metrics (default is concise)")]
+    pub full: bool,
+
+    #[arg(long, help = "Disable on-disk result caching")]
+    pub no_cache: bool,
+
+    #[arg(long, help = "Count LLM tokens with the embedded GPT-2 tokenizer (build with --features tokens)")]
+    pub tokens: bool,
+
+    #[arg(long, help = "Count tree-sitter CST nodes and leaf tokens")]
+    pub nodes: bool,
 }

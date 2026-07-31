@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
+use std::time::Instant;
 use rayon::prelude::*;
 
 pub mod language;
@@ -9,6 +10,11 @@ pub mod output;
 pub mod report;
 pub mod cli;
 pub mod complexity;
+pub mod schedule;
+pub mod cache;
+
+#[cfg(feature = "tokens")]
+pub mod tokens;
 
 pub use report::Report;
 pub use language::{LanguageCategory, LanguageSubgroup};
@@ -69,71 +75,163 @@ impl From<&cli::Args> for LanguageFilter {
     }
 }
 
-pub fn run(paths: &[PathBuf], filter: &LanguageFilter) -> Report {
+pub struct RunOptions {
+    pub sloc_only: bool,
+    pub nodes: bool,
+    pub tokens: bool,
+    pub cache: cache::Cache,
+}
+
+impl RunOptions {
+    pub fn from_args(args: &cli::Args) -> Self {
+        RunOptions {
+            sloc_only: args.sloc_only,
+            nodes: args.nodes,
+            tokens: args.tokens,
+            cache: cache::Cache::new(!args.no_cache),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, serde::Serialize)]
+pub struct Performance {
+    pub elapsed_secs: f64,
+    pub bytes_parsed: u64,
+    pub files: u64,
+    pub functions: u64,
+    pub bytes_per_sec: f64,
+    pub files_per_sec: f64,
+    pub functions_per_sec: f64,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+struct FileResult {
+    name: String,
+    bytes: u64,
+    size: u64,
+    mtime_ns: u64,
+    count: counter::CountResult,
+    cx: Option<complexity::ComplexityResult>,
+    tokens: u64,
+}
+
+pub fn run(paths: &[PathBuf], filter: &LanguageFilter, opts: &RunOptions) -> Report {
+    let start = Instant::now();
     let registry = language::registry();
-
     let entries = walker::walk_files(paths, registry);
+    let want_complexity = !opts.sloc_only;
 
-    let results: Vec<(String, counter::CountResult, complexity::ComplexityResult)> = entries
+    let results: Vec<FileResult> = entries
         .par_iter()
         .with_min_len(1)
         .filter(|entry| filter.matches(entry.language))
         .filter_map(|entry| {
             let source = std::fs::read(&entry.path).ok()?;
+            let size = source.len() as u64;
+            let mtime_ns = std::fs::metadata(&entry.path).ok()
+                .and_then(|m| m.modified().ok())
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_nanos() as u64).unwrap_or(0);
+
             let count = counter::count(&source, entry.language);
-            let cx = complexity::analyze(&source, entry.language);
-            Some((entry.language.name.to_string(), count, cx))
+
+            let cx = if want_complexity {
+                if let Some((_, cx)) = opts.cache.get(&entry.path, size, mtime_ns) {
+                    Some(cx)
+                } else {
+                    let cx = complexity::analyze(&source, entry.language);
+                    opts.cache.put(&entry.path, size, mtime_ns, &count, &cx);
+                    Some(cx)
+                }
+            } else { None };
+
+            let tokens = if opts.tokens {
+                #[cfg(feature = "tokens")]
+                { tokens::count_tokens(&source) }
+                #[cfg(not(feature = "tokens"))]
+                { 0 }
+            } else { 0 };
+
+            Some(FileResult {
+                name: entry.language.name.to_string(),
+                bytes: size,
+                size, mtime_ns,
+                count, cx, tokens,
+            })
         })
         .collect();
 
+    let elapsed = start.elapsed().as_secs_f64();
+
     let mut counts: BTreeMap<String, (u64, u64, u64)> = BTreeMap::new();
-    let mut cx_halstead: BTreeMap<String, complexity::HalsteadMetrics> = BTreeMap::new();
-    let mut cx_mccabe: BTreeMap<String, complexity::McCabeMetrics> = BTreeMap::new();
-    let mut cx_hk: BTreeMap<String, complexity::HenryKafuraMetrics> = BTreeMap::new();
+    let mut halstead_agg: BTreeMap<String, complexity::HalsteadMetrics> = BTreeMap::new();
+    let mut mccabe_agg: BTreeMap<String, complexity::McCabeMetrics> = BTreeMap::new();
+    let mut nodes_agg = complexity::NodeCounts::default();
+    let mut total_bytes: u64 = 0;
+    let mut total_functions: u64 = 0;
+    let mut token_count: u64 = 0;
 
-    for (name, count, cx) in results {
-        let e = counts.entry(name.clone()).or_insert((0, 0, 0));
-        e.0 += count.sloc; e.1 += 1; e.2 += count.comments;
+    for r in &results {
+        total_bytes += r.bytes;
+        token_count += r.tokens;
+        let e = counts.entry(r.name.clone()).or_insert((0, 0, 0));
+        e.0 += r.count.sloc; e.1 += 1; e.2 += r.count.comments;
 
-        let h = cx_halstead.entry(name.clone()).or_default();
-        h.distinct_operators += cx.halstead.distinct_operators;
-        h.distinct_operands += cx.halstead.distinct_operands;
-        h.total_operators += cx.halstead.total_operators;
-        h.total_operands += cx.halstead.total_operands;
+        if let Some(ref cx) = r.cx {
+            let h = halstead_agg.entry(r.name.clone()).or_default();
+            h.distinct_operators += cx.halstead.distinct_operators;
+            h.distinct_operands += cx.halstead.distinct_operands;
+            h.total_operators += cx.halstead.total_operators;
+            h.total_operands += cx.halstead.total_operands;
 
-        let m = cx_mccabe.entry(name.clone()).or_insert_with(|| complexity::McCabeMetrics {
-            function_count: 0, total_cyclomatic: 0, average_cyclomatic: 0.0,
-        });
-        m.function_count += cx.mccabe.function_count;
-        m.total_cyclomatic += cx.mccabe.total_cyclomatic;
+            let m = mccabe_agg.entry(r.name.clone()).or_default();
+            m.function_count += cx.mccabe.function_count;
+            m.total_cyclomatic += cx.mccabe.total_cyclomatic;
+            total_functions += cx.mccabe.function_count;
 
-        let k = cx_hk.entry(name.clone()).or_insert_with(|| cx.henry_kafura.clone());
-        k.total_modules += cx.henry_kafura.total_modules;
-        k.total_fan_in += cx.henry_kafura.total_fan_in;
-        k.total_fan_out += cx.henry_kafura.total_fan_out;
+            if opts.nodes {
+                nodes_agg.named_nodes += cx.nodes.named_nodes;
+                nodes_agg.leaf_tokens += cx.nodes.leaf_tokens;
+            }
+        }
     }
 
-    for (name, h) in &mut cx_halstead {
-        let n1 = h.distinct_operators; let n2 = h.distinct_operands;
-        let t1 = h.total_operators; let t2 = h.total_operands;
-        let n_vocab = n1 + n2; let n_len = t1 + t2;
-        let volume = if n_vocab > 0 { (n_len as f64) * (n_vocab as f64).log2() } else { 0.0 };
-        let diff = if n1 > 0 { (n1 as f64 / 2.0) * (t2 as f64 / n2.max(1) as f64) } else { 0.0 };
-        h.vocabulary = n_vocab; h.length = n_len;
-        h.estimated_length = if n1 > 0 && n2 > 0 {
-            n1 as f64 * (n1 as f64).log2() + n2 as f64 * (n2 as f64).log2()
-        } else { 0.0 };
-        h.volume = volume; h.difficulty = diff;
-        h.effort = diff * volume;
-        h.time_seconds = h.effort / 18.0;
-        h.bugs = volume / 3000.0;
+    for h in halstead_agg.values_mut() {
+        derive_halstead(h);
     }
 
-    for (_, m) in &mut cx_mccabe {
-        m.average_cyclomatic = if m.function_count > 0 {
-            m.total_cyclomatic as f64 / m.function_count as f64
-        } else { 0.0 };
-    }
+    let total_files: u64 = counts.values().map(|c| c.1).sum();
 
-    Report::from_data(counts, cx_halstead, cx_mccabe, cx_hk)
+    let perf = Performance {
+        elapsed_secs: elapsed,
+        bytes_parsed: total_bytes,
+        files: total_files,
+        functions: total_functions,
+        bytes_per_sec: if elapsed > 0.0 { total_bytes as f64 / elapsed } else { 0.0 },
+        files_per_sec: if elapsed > 0.0 { total_files as f64 / elapsed } else { 0.0 },
+        functions_per_sec: if elapsed > 0.0 { total_functions as f64 / elapsed } else { 0.0 },
+    };
+
+    let (cache_hits, cache_misses) = opts.cache.stats();
+
+    Report::from_data(
+        counts, halstead_agg, mccabe_agg, nodes_agg,
+        perf, token_count, cache_hits, cache_misses,
+    )
+}
+
+fn derive_halstead(h: &mut complexity::HalsteadMetrics) {
+    let n1 = h.distinct_operators; let n2 = h.distinct_operands;
+    let t1 = h.total_operators; let t2 = h.total_operands;
+    let n_vocab = n1 + n2; let n_len = t1 + t2;
+    let volume = if n_vocab > 0 { (n_len as f64) * (n_vocab as f64).log2() } else { 0.0 };
+    let diff = if n1 > 0 { (n1 as f64 / 2.0) * (t2 as f64 / n2.max(1) as f64) } else { 0.0 };
+    h.vocabulary = n_vocab; h.length = n_len;
+    h.estimated_length = if n1 > 0 && n2 > 0 {
+        n1 as f64 * (n1 as f64).log2() + n2 as f64 * (n2 as f64).log2()
+    } else { 0.0 };
+    h.volume = volume; h.difficulty = diff;
+    h.effort = diff * volume;
+    h.time_seconds = h.effort / 18.0;
+    h.bugs = volume / 3000.0;
 }

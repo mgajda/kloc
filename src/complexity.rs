@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use crate::language::LanguageSpec;
 
-#[derive(Debug, Clone, Default, serde::Serialize)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct HalsteadMetrics {
     pub distinct_operators: u64,
     pub distinct_operands: u64,
@@ -17,14 +17,14 @@ pub struct HalsteadMetrics {
     pub bugs: f64,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct McCabeMetrics {
     pub function_count: u64,
     pub total_cyclomatic: u64,
     pub average_cyclomatic: f64,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct HenryKafuraMetrics {
     pub total_modules: u64,
     pub total_fan_in: u64,
@@ -32,11 +32,18 @@ pub struct HenryKafuraMetrics {
     pub total_information_flow: f64,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct NodeCounts {
+    pub named_nodes: u64,
+    pub leaf_tokens: u64,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ComplexityResult {
     pub halstead: HalsteadMetrics,
     pub mccabe: McCabeMetrics,
     pub henry_kafura: HenryKafuraMetrics,
+    pub nodes: NodeCounts,
 }
 
 fn kind_is_function(kind: &str) -> bool {
@@ -150,8 +157,6 @@ pub fn analyze(source: &[u8], spec: &LanguageSpec) -> ComplexityResult {
     let root = tree.root_node();
     let mut op_counts: HashMap<String, u64> = HashMap::new();
     let mut opd_counts: HashMap<String, u64> = HashMap::new();
-    let mut decisions: u64 = 0;
-    let mut functions: u64 = 0;
 
     struct WalkState<'a> {
         ops: &'a mut HashMap<String, u64>,
@@ -160,6 +165,7 @@ pub fn analyze(source: &[u8], spec: &LanguageSpec) -> ComplexityResult {
         functions: u64,
         in_fn: bool,
         fn_depth: u32,
+        nodes: NodeCounts,
     }
 
     fn walk_node(node: tree_sitter::Node, source: &[u8], state: &mut WalkState) {
@@ -167,8 +173,15 @@ pub fn analyze(source: &[u8], spec: &LanguageSpec) -> ComplexityResult {
         let is_named = node.is_named();
         let parent_kind = node.parent().as_ref().map_or("", |p| p.kind());
 
-        if !is_named || node.child_count() == 0 {
-            if let Ok(raw) = node.utf8_text(source) {
+        if is_named {
+            state.nodes.named_nodes += 1;
+        }
+        if node.child_count() == 0 {
+            state.nodes.leaf_tokens += 1;
+        }
+
+        if (!is_named || node.child_count() == 0)
+            && let Ok(raw) = node.utf8_text(source) {
                 let text = raw.trim();
                 if !text.is_empty() {
                     let is_op = classify(kind, text, parent_kind);
@@ -176,7 +189,6 @@ pub fn analyze(source: &[u8], spec: &LanguageSpec) -> ComplexityResult {
                     m.entry(text.to_string()).and_modify(|c| *c += 1).or_insert(1);
                 }
             }
-        }
 
         if is_named && kind_is_function(kind) && !state.in_fn {
             state.functions += 1;
@@ -206,10 +218,12 @@ pub fn analyze(source: &[u8], spec: &LanguageSpec) -> ComplexityResult {
         ops: &mut op_counts, opds: &mut opd_counts,
         decisions: 0, functions: 0,
         in_fn: false, fn_depth: 0,
+        nodes: NodeCounts::default(),
     };
     walk_node(root, source, &mut ws);
     let decisions = ws.decisions;
     let functions = ws.functions;
+    let nodes = ws.nodes;
 
     let n1 = op_counts.len() as u64;
     let n2 = opd_counts.len() as u64;
@@ -241,7 +255,7 @@ pub fn analyze(source: &[u8], spec: &LanguageSpec) -> ComplexityResult {
 
     let hk = HenryKafuraMetrics { total_modules: 0, total_fan_in: 0, total_fan_out: 0, total_information_flow: 0.0 };
 
-    ComplexityResult { halstead, mccabe, henry_kafura: hk }
+    ComplexityResult { halstead, mccabe, henry_kafura: hk, nodes }
 }
 
 fn empty_result() -> ComplexityResult {
@@ -255,5 +269,6 @@ fn empty_result() -> ComplexityResult {
         },
         mccabe: McCabeMetrics { function_count: 0, total_cyclomatic: 0, average_cyclomatic: 0.0 },
         henry_kafura: HenryKafuraMetrics { total_modules: 0, total_fan_in: 0, total_fan_out: 0, total_information_flow: 0.0 },
+        nodes: NodeCounts::default(),
     }
 }
