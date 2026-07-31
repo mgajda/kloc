@@ -158,14 +158,14 @@ fn build_schedule_cols(
     let token_cols: Vec<MetricCol> = match llm_tokens {
         Some(t) => vec![
             MetricCol {
-                group: "AI", label: "Claude Max", color: 6, bg: 6,
+                group: "AI", label: "Claude Max", color: 6, bg: 100,
                 metric: if t.claude_sonnet > 0 { format!("{} tokens", human_tokens(t.claude_sonnet)) } else { "—".to_string() },
                 effort: if t.claude_sonnet > 0 { ai_dur(t.claude_sonnet) } else { "—".to_string() },
                 team: "—".to_string(),
                 schedule: if t.claude_sonnet > 0 { ai_dur(t.claude_sonnet) } else { "—".to_string() },
             },
             MetricCol {
-                group: "AI", label: "DeepSeek V4 (OpenCode)", color: 1, bg: 6,
+                group: "AI", label: "DeepSeek V4 (OpenCode)", color: 1, bg: 100,
                 metric: if t.deepseek_v4 > 0 { format!("{} tokens", human_tokens(t.deepseek_v4)) } else { "—".to_string() },
                 effort: if t.deepseek_v4 > 0 { ai_dur(t.deepseek_v4) } else { "—".to_string() },
                 team: "—".to_string(),
@@ -179,35 +179,35 @@ fn build_schedule_cols(
     // suffix); effort in person-months; team size where the model has one.
     let mut cols = vec![
         MetricCol {
-            group: "Kloc-driven", label: "COCOMO 1", color: 4, bg: 4,
+            group: "Kloc-driven", label: "COCOMO 1", color: 4, bg: 100,
             metric: format!("{:.1} k lines of code", s.ksloc),
             effort: human_person_months(s.cocomo.effort_person_months),
             team: format!("{:.1}", s.cocomo.avg_people),
             schedule: months(s.cocomo.schedule_months),
         },
         MetricCol {
-            group: "Kloc-driven", label: "COCOMO 2", color: 2, bg: 4,
+            group: "Kloc-driven", label: "COCOMO 2", color: 2, bg: 100,
             metric: format!("{:.1} k lines of code", s.ksloc),
             effort: human_person_months(s.cocomo_ii.effort_person_months),
             team: format!("{:.1}", s.cocomo_ii.avg_people),
             schedule: months(s.cocomo_ii.schedule_months),
         },
         MetricCol {
-            group: "Kloc-driven", label: "Putnam", color: 3, bg: 4,
+            group: "Kloc-driven", label: "Putnam", color: 3, bg: 100,
             metric: format!("{:.1} k lines of code", s.ksloc),
             effort: human_person_months(s.cocomo_ii.effort_person_months),
             team: format!("{:.1}", s.putnam.avg_people),
             schedule: months(s.putnam.schedule_months),
         },
         MetricCol {
-            group: "AST", label: "Tree-sitter", color: 7, bg: 5,
+            group: "AST", label: "Tree-sitter", color: 7, bg: 40,
             metric: human_metric,
             effort: human_duration_str.clone(),
             team: "—".to_string(),
             schedule: human_duration_str,
         },
         MetricCol {
-            group: "AST", label: "Halstead", color: 5, bg: 5,
+            group: "AST", label: "Halstead", color: 5, bg: 40,
             metric: match halstead_volume {
                 Some(v) => format!("{} volume", human_tokens(v as u64)),
                 None => "—".to_string(),

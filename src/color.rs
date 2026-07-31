@@ -99,26 +99,24 @@ impl Colors {
         self.wrap(s, "90")
     }
 
-    /// Standard 8-colour foreground by palette index (1=red..7=white).
-    /// Emits `\x1b[3{n}m` (foreground colour), not a bare SGR attribute.
+    /// Bright foreground by palette index (1=red..7=white). Emits
+    /// `\x1b[9{n}m` so text stays readable on dark backgrounds.
     pub fn ansi(&self, s: &str, n: u8) -> String {
-        let code = if n == 7 { 37 } else { 30 + n.min(6) };
+        let code = 90 + n.min(7);
         self.wrap(s, &format!("{code}"))
     }
 
-    /// Standard 8-colour background by palette index (1=red..7=white).
-    /// Emits `\x1b[4{n}m` (background colour).
-    pub fn bg(&self, s: &str, n: u8) -> String {
-        let code = if n == 7 { 47 } else { 40 + n.min(6) };
+    /// Explicit SGR background colour code (e.g. 40=black, 100=dark gray).
+    /// Only dark backgrounds are used — light backgrounds are never emitted.
+    pub fn bg_code(&self, s: &str, code: u8) -> String {
         self.wrap(s, &format!("{code}"))
     }
 
-    /// Foreground over a background: `\x1b[3fg;4bg m`. Palette indices
-    /// 1=red..7=white for both.
-    pub fn on_bg(&self, s: &str, fg: u8, bg: u8) -> String {
-        let f = if fg == 7 { 37 } else { 30 + fg.min(6) };
-        let b = if bg == 7 { 47 } else { 40 + bg.min(6) };
-        self.wrap(s, &format!("{f};{b}"))
+    /// Bright foreground (1=red..7=white) over a dark SGR background code.
+    /// e.g. `on_bg(s, 4, 100)` = bright blue text on dark gray.
+    pub fn on_bg(&self, s: &str, fg: u8, bg_code: u8) -> String {
+        let f = 90 + fg.min(7);
+        self.wrap(s, &format!("{f};{bg_code}"))
     }
 }
 
