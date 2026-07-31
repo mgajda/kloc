@@ -152,3 +152,59 @@ pub fn estimate(sloc: u64, halstead_effort: f64) -> ScheduleReport {
         halstead_person_months: halstead_person_months(halstead_effort),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_cocomo_effort_monotonic() {
+        // Effort and schedule must grow with size.
+        let small = CocomoMode::Organic.effort_person_months(1.0);
+        let large = CocomoMode::Organic.effort_person_months(100.0);
+        assert!(large > small);
+        let s_small = CocomoMode::Organic.schedule_months(small);
+        let s_large = CocomoMode::Organic.schedule_months(large);
+        assert!(s_large > s_small);
+    }
+
+    #[test]
+    fn test_cocomo_avg_people_positive() {
+        let pm = CocomoMode::Organic.effort_person_months(10.0);
+        let avg = CocomoMode::Organic.avg_people(pm);
+        assert!(avg > 0.0);
+    }
+
+    #[test]
+    fn test_cocomo_ii_monotonic() {
+        assert!(cocomo_ii_person_months(100.0) > cocomo_ii_person_months(1.0));
+        assert!(cocomo_ii_schedule_months(100.0) > cocomo_ii_schedule_months(1.0));
+    }
+
+    #[test]
+    fn test_putnam_finite_and_positive() {
+        let y = putnam_schedule_years(1000.0, 2.0);
+        assert!(y.is_finite() && y > 0.0);
+        // More effort → shorter schedule.
+        let y_more = putnam_schedule_years(1000.0, 200.0);
+        assert!(y_more < y);
+    }
+
+    #[test]
+    fn test_halstead_person_months() {
+        // Zero effort → zero.
+        assert_eq!(halstead_person_months(0.0), 0.0);
+        // Larger effort → more person-months.
+        assert!(halstead_person_months(1e6) > halstead_person_months(1e3));
+    }
+
+    #[test]
+    fn test_estimate_sanity() {
+        let r = estimate(10_000, 1e5);
+        assert!((r.ksloc - 10.0).abs() < 1e-6);
+        assert!(r.cocomo.effort_person_months > 0.0);
+        assert!(r.cocomo_ii.effort_person_months > 0.0);
+        assert!(r.putnam.schedule_months > 0.0);
+        assert!(r.halstead_person_months > 0.0);
+    }
+}

@@ -100,8 +100,10 @@ impl Colors {
     }
 
     /// Standard 8-colour foreground by palette index (1=red..7=white).
+    /// Emits `\x1b[3{n}m` (foreground colour), not a bare SGR attribute.
     pub fn ansi(&self, s: &str, n: u8) -> String {
-        self.wrap(s, &format!("{n}"))
+        let code = if n == 7 { 37 } else { 30 + n.min(6) };
+        self.wrap(s, &format!("{code}"))
     }
 }
 

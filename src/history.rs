@@ -46,6 +46,36 @@ impl AiPlan {
     }
 }
 
+/// The token caps of a plan, in ascending order: the 5-hour rolling-window
+/// allowance, then daily, weekly, and monthly caps. AI processing time is
+/// gated by these caps (not by a linear tokens-per-hour rate): the effective
+/// load is divided by the largest cap it fits under. The daily/weekly/monthly
+/// caps are estimated as multiples of the 5-hour window (≈4 windows/day,
+/// 5 days/week, 4.33 weeks/month) — Anthropic publishes only the window
+/// multiple, so these are rough calibration, overridable with `--ai-budget`.
+#[derive(Debug, Clone, Copy)]
+pub struct AiCaps {
+    pub window_5h: u64,
+    pub daily: u64,
+    pub weekly: u64,
+    pub monthly: u64,
+}
+
+impl AiCaps {
+    pub fn from_plan(plan: AiPlan) -> Self {
+        let w = plan.tokens_per_5h();
+        AiCaps { window_5h: w, daily: w * 4, weekly: w * 20, monthly: w * 87 }
+    }
+
+    pub fn with_budget(mut self, budget: u64) -> Self {
+        self.window_5h = budget;
+        self.daily = budget * 4;
+        self.weekly = budget * 20;
+        self.monthly = budget * 87;
+        self
+    }
+}
+
 /// Estimated ratio of input tokens consumed while debugging to output tokens
 /// written: producing N output tokens of code typically requires ~5×N input
 /// tokens (re-reading context, compiler/error feedback, iteration).
@@ -59,16 +89,62 @@ pub fn effective_tokens(tokens: u64) -> u64 {
 }
 
 /// Elapsed seconds to process `tokens` of output code on the default plan
-/// (Max 20x), i.e. the number of 5-hour windows times 5 hours. The token
-/// cost is corrected for debugging first via [`effective_tokens`].
-/// Used by the schedule table's "Token" methodology as its effort/schedule.
+/// (Max 20x), gated by the plan caps: the effective (debug-corrected) load is
+/// divided by the largest cap it fits under — monthly, then weekly, then
+/// daily, then rounded up to whole 5-hour windows. This is deliberately
+/// different from a linear rate, because the plan limits processing per
+/// 5-hour window / day / week / month.
 pub fn ai_time_seconds(tokens: u64) -> f64 {
-    let budget = AiPlan::Max20.tokens_per_5h();
-    if budget == 0 { return 0.0; }
-    let effective = effective_tokens(tokens);
-    let windows = effective.div_ceil(budget);
-    windows as f64 * 5.0 * 3600.0
+    ai_time_seconds_with_caps(tokens, AiCaps::from_plan(AiPlan::Max20))
 }
+
+/// [`ai_time_seconds`] with an explicit cap set (used to honour
+/// `--ai-budget`).
+pub fn ai_time_seconds_with_caps(tokens: u64, caps: AiCaps) -> f64 {
+    let effective = effective_tokens(tokens);
+    if effective == 0 { return 0.0; }
+    if caps.monthly > 0 && effective >= caps.monthly {
+        // months = effective / monthly cap
+        effective as f64 / caps.monthly as f64 * (30.44 * 24.0 * 3600.0)
+    } else if caps.weekly > 0 && effective >= caps.weekly {
+        effective as f64 / caps.weekly as f64 * (7.0 * 24.0 * 3600.0)
+    } else if caps.daily > 0 && effective >= caps.daily {
+        effective as f64 / caps.daily as f64 * (24.0 * 3600.0)
+    } else if caps.window_5h > 0 {
+        let windows = effective.div_ceil(caps.window_5h);
+        windows as f64 * 5.0 * 3600.0
+    } else {
+        0.0
+    }
+}
+
+/// Human-readable AI duration from an elapsed-seconds value, choosing the
+/// unit by the largest cap it spans (windows→days→weeks→months) rather than
+/// by wall-clock thresholds.
+pub fn ai_duration(seconds: f64, caps: AiCaps) -> String {
+    if seconds < 0.0 || !seconds.is_finite() { return "0 s".to_string(); }
+    let window_secs = 5.0 * 3600.0;
+    let day_secs = 24.0 * 3600.0;
+    let week_secs = 7.0 * day_secs;
+    let month_secs = 30.44 * day_secs;
+    let (value, unit) = if caps.monthly > 0 && seconds >= month_secs * 1.0 {
+        (seconds / month_secs, "months")
+    } else if caps.weekly > 0 && seconds >= week_secs {
+        (seconds / week_secs, "weeks")
+    } else if caps.daily > 0 && seconds >= day_secs {
+        (seconds / day_secs, "days")
+    } else if caps.window_5h > 0 && seconds >= window_secs {
+        (seconds / window_secs, "5h windows")
+    } else {
+        (seconds, "seconds")
+    };
+    if unit == "seconds" {
+        format!("{value:.0} s")
+    } else {
+        format!("{value:.1} {unit}")
+    }
+}
+
 
 /// Per-language history totals.
 #[derive(Debug, Clone, serde::Serialize)]
@@ -102,6 +178,12 @@ pub struct HistoryReport {
     pub by_language: Vec<LanguageHistoryTotal>,
     pub ai_estimates: Vec<AiEstimate>,
     pub llm_changed_tokens: Option<TokenCounts>,
+    /// Effort/schedule models estimated from the diff-added lines.
+    pub schedule: crate::schedule::ScheduleReport,
+    /// Human-oriented tree-sitter token count estimated from diff LOC
+    /// (≈4 tokens per added line — the midpoint of 200–2000 tokens per
+    /// 50–500 LOC).
+    pub leaf_tokens: u64,
 }
 
 /// Run the history analysis. `paths` must point inside a git work tree.
@@ -179,9 +261,10 @@ pub fn run_history(
     let total_changed_tokens = llm.claude_sonnet;
     let ai_estimates = ai_plans.iter().map(|plan| {
         let budget = ai_budget_override.unwrap_or_else(|| plan.tokens_per_5h());
+        let caps = AiCaps::from_plan(*plan).with_budget(budget);
+        let elapsed_seconds = ai_time_seconds_with_caps(total_changed_tokens, caps);
         let effective = effective_tokens(total_changed_tokens);
-        let windows_5h = if budget > 0 { effective.div_ceil(budget) } else { 0 };
-        let elapsed_seconds = windows_5h as f64 * 5.0 * 3600.0;
+        let windows_5h = if caps.window_5h > 0 { effective.div_ceil(caps.window_5h) } else { 0 };
         AiEstimate { plan: plan.label(), tokens_per_5h: budget, changed_tokens: total_changed_tokens, windows_5h, elapsed_seconds }
     }).collect();
 
@@ -207,6 +290,10 @@ pub fn run_history(
             #[cfg(not(feature = "tokens"))]
             { None }
         },
+        schedule: crate::schedule::estimate(total_added, 0.0),
+        // ~4 tree-sitter tokens per added LOC (midpoint of 200–2000 tokens
+        // per 50–500 LOC/day).
+        leaf_tokens: total_added * 4,
     })
 }
 
@@ -229,7 +316,7 @@ struct PerLang {
 /// commit's diff).
 fn flush(
     per_lang: &mut BTreeMap<String, PerLang>,
-    llm: &mut TokenCounts,
+    _llm: &mut TokenCounts,
     total_added: &mut u64,
     total_removed: &mut u64,
 ) {
@@ -244,8 +331,8 @@ fn flush(
             let r = crate::tokens::count_tokens(&p.removed_bytes);
             p.added_tokens += a.claude_sonnet;
             p.removed_tokens += r.claude_sonnet;
-            llm.claude_sonnet += a.claude_sonnet + r.claude_sonnet;
-            llm.deepseek_v4 += a.deepseek_v4 + r.deepseek_v4;
+            _llm.claude_sonnet += a.claude_sonnet + r.claude_sonnet;
+            _llm.deepseek_v4 += a.deepseek_v4 + r.deepseek_v4;
         }
         p.added_bytes.clear();
         p.removed_bytes.clear();
@@ -310,4 +397,68 @@ fn second_diff_path(p: &str) -> Option<String> {
     let _a = it.next();
     let b = it.next()?;
     b.strip_prefix("b/").map(|s| s.to_string()).or_else(|| Some(b.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_effective_tokens_debug_multiplier() {
+        // N output tokens → N × (1 + 5) effective (5x input for debugging).
+        assert_eq!(effective_tokens(0), 0);
+        assert_eq!(effective_tokens(100), 600);
+        assert_eq!(effective_tokens(1000), 6000);
+    }
+
+    #[test]
+    fn test_ai_plan_budgets() {
+        assert_eq!(AiPlan::Pro.tokens_per_5h(), 44_000);
+        assert_eq!(AiPlan::Max5.tokens_per_5h(), 88_000);
+        assert_eq!(AiPlan::Max20.tokens_per_5h(), 220_000);
+        assert_eq!(AiPlan::Max20.label(), "Claude Max 20x");
+    }
+
+    #[test]
+    fn test_ai_caps_ordering() {
+        let caps = AiCaps::from_plan(AiPlan::Max20);
+        assert!(caps.window_5h < caps.daily);
+        assert!(caps.daily < caps.weekly);
+        assert!(caps.weekly < caps.monthly);
+        assert_eq!(caps.window_5h, 220_000);
+    }
+
+    #[test]
+    fn test_ai_time_seconds_by_caps() {
+        // Below daily cap → whole 5-hour windows.
+        // Effective = tokens×6. With 50k output → 300k effective.
+        // 300k < daily (880k) so windows = ceil(300k/220k) = 2 → 10h.
+        let secs = ai_time_seconds(50_000);
+        assert!((secs - 10.0 * 3600.0).abs() < 1.0, "expected 10h, got {secs}");
+    }
+
+    #[test]
+    fn test_ai_duration_units() {
+        let caps = AiCaps::from_plan(AiPlan::Max20);
+        // 2 windows → "2.0 5h windows"
+        assert_eq!(ai_duration(2.0 * 5.0 * 3600.0, caps), "2.0 5h windows");
+        // a bit over a day → days
+        assert_eq!(ai_duration(1.5 * 24.0 * 3600.0, caps), "1.5 days");
+        // over a week → weeks
+        assert_eq!(ai_duration(2.0 * 7.0 * 24.0 * 3600.0, caps), "2.0 weeks");
+    }
+
+    #[test]
+    fn test_build_range() {
+        assert_eq!(build_range(None, None), None);
+        assert_eq!(build_range(Some("v1"), None), Some("v1..".to_string()));
+        assert_eq!(build_range(Some("v1"), Some("v2")), Some("v1..v2".to_string()));
+        assert_eq!(build_range(None, Some("HEAD")), Some("HEAD".to_string()));
+    }
+
+    #[test]
+    fn test_second_diff_path() {
+        assert_eq!(second_diff_path("a/old.rs b/new.rs"), Some("new.rs".to_string()));
+        assert_eq!(second_diff_path("b/new.rs b/new.rs"), Some("new.rs".to_string()));
+    }
 }
