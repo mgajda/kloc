@@ -38,6 +38,12 @@ pub struct Args {
     #[arg(long, help = "Analyze git history: changed tokens per commit, AI-plan time to process them, and effort estimate")]
     pub history: bool,
 
+    #[arg(long, help = "With --history: start commit or revision (default: from the initial commit(s))")]
+    pub from: Option<String>,
+
+    #[arg(long, help = "With --history: end commit or revision (default: the current branch tip)")]
+    pub to: Option<String>,
+
     #[arg(long, value_enum, help = "Claude plan used to calibrate the AI time-to-process estimate (default: max20)")]
     pub ai_plan: Option<AiPlan>,
 

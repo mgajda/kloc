@@ -13,7 +13,9 @@ fn main() {
 
     if args.history {
         let plan = args.ai_plan.unwrap_or(kloc::history::AiPlan::Max20);
-        let report = match kloc::history::run_history(&paths, &filter, &[plan], args.ai_budget) {
+        let report = match kloc::history::run_history(
+            &paths, &filter, args.from.as_deref(), args.to.as_deref(), &[plan], args.ai_budget)
+        {
             Ok(r) => r,
             Err(e) => { eprintln!("{e}"); std::process::exit(1); }
         };

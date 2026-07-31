@@ -121,36 +121,76 @@ fn format_text(report: &Report, full: bool, colors: Colors) -> String {
 
     if let Some(ref s) = report.schedule {
         out.push_str("\n--- Schedule ---\n\n");
-        // Rows: Schedule / Effort / Team size. Columns: methodologies, each
-        // with a distinct standard colour to ease reading. Cells a model
-        // does not produce are shown as "—".
-        let months = |m: f64| human_duration(m * 30.44 * 24.0 * 3600.0);
 
+        // Grouped table: rows are Metric / Effort / Team size / Schedule,
+        // columns are methodologies grouped into families. Each column has a
+        // distinct colour. Cells a model does not produce are "—".
+        //
+        // The "Token" methodology is LLM-based: its metric is the token
+        // count and its effort/schedule are the AI-plan time to process
+        // those tokens (no team size).
+        let months = |m: f64| human_duration(m * 30.44 * 24.0 * 3600.0);
+        let halstead_schedule = report.halstead.as_ref().map(|h| human_duration(h.time_seconds))
+            .unwrap_or_else(|| "—".to_string());
+
+        // Token column: metric = Claude token count, effort & schedule = AI
+        // plan time (default Max 20x), no team size.
+        let token_count = report.llm_tokens.map(|t| t.claude_sonnet).unwrap_or(0);
+        let ai_secs = crate::history::ai_time_seconds(token_count);
+        let token_metric = if token_count > 0 { format!("{token_count} tokens") } else { "—".to_string() };
+        let token_time = if token_count > 0 { human_duration(ai_secs) } else { "—".to_string() };
+
+        // Column spec: (group, label, colour, metric, effort, team, schedule)
         struct Col<'a> {
+            group: &'a str,
             label: &'a str,
             color: u8,
-            schedule: String,
+            metric: String,
             effort: String,
             team: String,
+            schedule: String,
         }
         let cols = [
-            Col { label: "Basic COCOMO", color: 4, schedule: months(s.cocomo.schedule_months), effort: human_person_months(s.cocomo.effort_person_months), team: format!("{:.1}", s.cocomo.avg_people) },
-            Col { label: "COCOMO II", color: 2, schedule: months(s.cocomo_ii.schedule_months), effort: human_person_months(s.cocomo_ii.effort_person_months), team: format!("{:.1}", s.cocomo_ii.avg_people) },
-            Col { label: "Putnam", color: 3, schedule: months(s.putnam.schedule_months), effort: "—".to_string(), team: format!("{:.1}", s.putnam.avg_people) },
-            Col { label: "Halstead", color: 5, schedule: "—".to_string(), effort: human_person_months(s.halstead_person_months), team: "—".to_string() },
+            Col { group: "COCOMO", label: "COCOMO 1", color: 4,
+                metric: format!("{:.1} PM", s.cocomo.effort_person_months),
+                effort: human_person_months(s.cocomo.effort_person_months),
+                team: format!("{:.1}", s.cocomo.avg_people),
+                schedule: months(s.cocomo.schedule_months) },
+            Col { group: "COCOMO", label: "COCOMO 2", color: 2,
+                metric: format!("{:.1} PM", s.cocomo_ii.effort_person_months),
+                effort: human_person_months(s.cocomo_ii.effort_person_months),
+                team: format!("{:.1}", s.cocomo_ii.avg_people),
+                schedule: months(s.cocomo_ii.schedule_months) },
+            Col { group: "Putnam", label: "Putnam", color: 3,
+                metric: format!("{:.1} PM", s.cocomo_ii.effort_person_months),
+                effort: human_person_months(s.cocomo_ii.effort_person_months),
+                team: format!("{:.1}", s.putnam.avg_people),
+                schedule: months(s.putnam.schedule_months) },
+            Col { group: "Halstead", label: "Halstead", color: 5,
+                metric: format!("{:.1} PM", s.halstead_person_months),
+                effort: human_person_months(s.halstead_person_months),
+                team: "—".to_string(),
+                schedule: halstead_schedule },
+            Col { group: "Token", label: "Token", color: 6,
+                metric: token_metric,
+                effort: token_time.clone(),
+                team: "—".to_string(),
+                schedule: token_time },
         ];
 
-        let mut widths = [10, 0, 0, 0, 0];
+        let n = cols.len();
+        // Column widths; index 0 is the row-label column.
+        let mut widths = [8, 0, 0, 0, 0, 0];
         for (i, c) in cols.iter().enumerate() {
-            widths[i + 1] = c.label.len().max(c.schedule.len()).max(c.effort.len()).max(c.team.len());
+            widths[i + 1] = c.label.len()
+                .max(c.metric.len()).max(c.effort.len())
+                .max(c.team.len()).max(c.schedule.len());
         }
-        let total = widths.iter().sum::<usize>() + 2 * cols.len();
-        let _ = total;
 
-        let line = |label: &str, values: [String; 4], color_fns: [Option<u8>; 4]| {
-            let mut l = format!("{:<width$}", label, width = widths[0]);
-            for (i, v) in values.iter().enumerate() {
-                let cell = format!("{:<width$}", v, width = widths[i + 1]);
+        let render = |cells: &[String], color_fns: &[Option<u8>]| -> String {
+            let mut l = format!("{:<8}", cells[0]);
+            for (i, v) in cells[1..].iter().enumerate() {
+                let cell = format!("{:>width$}", v, width = widths[i + 1]);
                 let cell = match color_fns[i] {
                     Some(c) => colors.ansi(&cell, c),
                     None => cell,
@@ -160,28 +200,47 @@ fn format_text(report: &Report, full: bool, colors: Colors) -> String {
             l
         };
 
-        // Header: methodology names coloured per column.
-        let mut hdr = format!("{:<width$}", "Methodology", width = widths[0]);
+        // Group header row: span the columns of each group.
+        let mut group_header = String::new();
+        let mut gi = 0;
+        while gi < n {
+            let g = cols[gi].group;
+            let mut span = 1;
+            while gi + span < n && cols[gi + span].group == g { span += 1; }
+            let label = g.to_string();
+            // combined width of the spanned columns
+            let w: usize = (0..span).map(|k| widths[gi + k + 1]).sum::<usize>() + 2 * (span - 1);
+            group_header.push_str(&format!("  {label:^width$}", width = w));
+            gi += span;
+        }
+        out.push_str(&format!("{:<8}{group_header}\n", ""));
+
+        // Column header row.
+        let mut hdr = format!("{:<8}", "Method");
         for (i, c) in cols.iter().enumerate() {
-            let cell = format!("{:<width$}", c.label, width = widths[i + 1]);
+            let cell = format!("{:>width$}", c.label, width = widths[i + 1]);
             hdr.push_str(&format!("  {}", colors.ansi(&cell, c.color)));
         }
         out.push_str(&format!("{hdr}\n"));
 
-        let schedule_vals = [
-            cols[0].schedule.clone(), cols[1].schedule.clone(), cols[2].schedule.clone(), cols[3].schedule.clone(),
-        ];
-        out.push_str(&format!("{}\n", line("Schedule", schedule_vals, [Some(4), Some(2), Some(3), Some(5)])));
+        // Row label column + a row per metric.
+        let row_colors: Vec<Option<u8>> = cols.iter().map(|c| Some(c.color)).collect();
 
-        let effort_vals = [
-            cols[0].effort.clone(), cols[1].effort.clone(), cols[2].effort.clone(), cols[3].effort.clone(),
-        ];
-        out.push_str(&format!("{}\n", line("Effort", effort_vals, [Some(4), Some(2), Some(3), Some(5)])));
+        let mut metric_row = vec!["Metric".to_string()];
+        metric_row.extend(cols.iter().map(|c| c.metric.clone()));
+        out.push_str(&format!("{}\n", render(&metric_row, &row_colors)));
 
-        let team_vals = [
-            cols[0].team.clone(), cols[1].team.clone(), cols[2].team.clone(), cols[3].team.clone(),
-        ];
-        out.push_str(&format!("{}\n", line("Team size", team_vals, [Some(4), Some(2), Some(3), Some(5)])));
+        let mut effort_row = vec!["Effort".to_string()];
+        effort_row.extend(cols.iter().map(|c| c.effort.clone()));
+        out.push_str(&format!("{}\n", render(&effort_row, &row_colors)));
+
+        let mut team_row = vec!["Team size".to_string()];
+        team_row.extend(cols.iter().map(|c| c.team.clone()));
+        out.push_str(&format!("{}\n", render(&team_row, &row_colors)));
+
+        let mut schedule_row = vec!["Schedule".to_string()];
+        schedule_row.extend(cols.iter().map(|c| c.schedule.clone()));
+        out.push_str(&format!("{}\n", render(&schedule_row, &row_colors)));
     }
 
     if full {

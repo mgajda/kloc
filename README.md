@@ -51,9 +51,18 @@ kloc --sloc-only        # skip complexity analysis (faster)
 kloc --no-cache         # disable the on-disk result cache
 kloc --color always     # force colors (auto/always/never; default auto)
 kloc --history          # analyze git history (changed tokens, AI time to process)
+kloc --history --from v1.0          # range: from v1.0.. (to branch tip)
+kloc --history --from v1.0 --to v2.0  # range: v1.0..v2.0
 kloc --history --ai-plan pro   # calibrate AI estimate on Claude Pro (or max5, max20)
 kloc --history --ai-budget 50000  # override the 5-hour token budget
 ```
+
+The schedule/effort block is a grouped table: rows are Metric / Effort / Team
+size / Schedule; columns are the estimation methodologies, grouped into
+families (COCOMO 1 + COCOMO 2, Putnam, Halstead, Token), each column a
+distinct colour. The **Token** column is LLM-based: its metric is the token
+count and its effort/schedule is the Claude-plan time to process those tokens
+(no team size).
 
 Output is concise by default: per-language SLOC, total code/comment lines,
 token counts, Halstead time-to-implement, average cyclomatic complexity,

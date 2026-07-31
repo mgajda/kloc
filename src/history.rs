@@ -46,6 +46,16 @@ impl AiPlan {
     }
 }
 
+/// Elapsed seconds to process `tokens` on the default plan (Max 20x),
+/// i.e. the number of 5-hour windows times 5 hours. Used by the schedule
+/// table's "Token" methodology as its effort/schedule.
+pub fn ai_time_seconds(tokens: u64) -> f64 {
+    let budget = AiPlan::Max20.tokens_per_5h();
+    if budget == 0 { return 0.0; }
+    let windows = tokens.div_ceil(budget);
+    windows as f64 * 5.0 * 3600.0
+}
+
 /// Per-language history totals.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct LanguageHistoryTotal {
@@ -70,6 +80,7 @@ pub struct AiEstimate {
 /// The full history report.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct HistoryReport {
+    pub range: String,
     pub commits: u64,
     pub total_added_lines: u64,
     pub total_removed_lines: u64,
@@ -80,15 +91,21 @@ pub struct HistoryReport {
 }
 
 /// Run the history analysis. `paths` must point inside a git work tree.
+///
+/// `from`/`to` select a commit range (`from..to`, or `from..` to the current
+/// branch tip). With neither given, the whole history from the initial
+/// commit(s) is analysed.
 pub fn run_history(
     paths: &[std::path::PathBuf],
     filter: &LanguageFilter,
+    from: Option<&str>,
+    to: Option<&str>,
     ai_plans: &[AiPlan],
     ai_budget_override: Option<u64>,
 ) -> Result<HistoryReport, String> {
     let root = git_root(paths)?;
     let registry = crate::language::registry();
-    let stream = git_log_p(&root)?;
+    let stream = git_log_p(&root, from, to)?;
     let reader = std::io::BufReader::new(stream);
 
     let mut commits: u64 = 0;
@@ -162,6 +179,7 @@ pub fn run_history(
     }).collect();
 
     Ok(HistoryReport {
+        range: build_range(from, to).unwrap_or_else(|| "full history".to_string()),
         commits,
         total_added_lines: total_added,
         total_removed_lines: total_removed,
@@ -222,17 +240,38 @@ fn flush(
 }
 
 /// Run `git log -p` and return its stdout as a pipe.
-fn git_log_p(root: &Path) -> Result<impl std::io::Read, String> {
-    let child = Command::new("git")
-        .arg("log")
+///
+/// `from`/`to` build a git revision range using native git semantics
+/// (`from` is exclusive): `from..to`, `from..` (to the current branch tip),
+/// or no revision argument (full history from the initial commit(s)).
+fn git_log_p(root: &Path, from: Option<&str>, to: Option<&str>) -> Result<impl std::io::Read, String> {
+    let mut cmd = Command::new("git");
+    cmd.arg("log")
         .arg("-p")
         .arg("--format=commit %H")
         .current_dir(root)
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("failed to run git log: {e}"))?;
+        .stderr(Stdio::piped());
+    if let Some(range) = build_range(from, to) {
+        cmd.arg(range);
+    }
+    let child = cmd.spawn().map_err(|e| format!("failed to run git log: {e}"))?;
     Ok(child.stdout.ok_or("git log produced no stdout")?)
+}
+
+/// Build the git revision-range argument.
+///
+/// - `(None, None)` → `None` (full history).
+/// - `(Some(f), None)` → `f..` (from `f` to the current branch tip).
+/// - `(Some(f), Some(t))` → `f..t`.
+/// - `(None, Some(t))` → `t` (everything reachable from `t`).
+fn build_range(from: Option<&str>, to: Option<&str>) -> Option<String> {
+    match (from, to) {
+        (None, None) => None,
+        (Some(f), None) => Some(format!("{f}..")),
+        (Some(f), Some(t)) => Some(format!("{f}..{t}")),
+        (None, Some(t)) => Some(t.to_string()),
+    }
 }
 
 /// Find the git work-tree root from the given paths (fall back to cwd).
