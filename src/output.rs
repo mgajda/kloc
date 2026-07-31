@@ -43,6 +43,67 @@ fn human_duration(seconds: f64) -> String {
     }
 }
 
+/// Humanise a token count with a k/M/B/T suffix, keeping at most 3 digits.
+fn human_tokens(n: u64) -> String {
+    const K: u64 = 1000;
+    const M: u64 = K * 1000;
+    const B: u64 = M * 1000;
+    const T: u64 = B * 1000;
+    let (value, suffix) = if n >= T {
+        (n as f64 / T as f64, "T")
+    } else if n >= B {
+        (n as f64 / B as f64, "B")
+    } else if n >= M {
+        (n as f64 / M as f64, "M")
+    } else if n >= K {
+        (n as f64 / K as f64, "k")
+    } else {
+        (n as f64, "")
+    };
+    if suffix.is_empty() {
+        n.to_string()
+    } else if value >= 100.0 {
+        format!("{value:.0}{suffix}")
+    } else if value >= 10.0 {
+        format!("{value:.1}{suffix}")
+    } else {
+        format!("{value:.2}{suffix}")
+    }
+}
+
+/// Align a column of cells so the decimal points line up.
+///
+/// Each cell is split into its leading number (up to the first space) and the
+/// unit that follows (e.g. `"5.5 person-months"` → number `"5.5"`, unit
+/// `"person-months"`). The numbers are padded so the `.` sits at the same
+/// column across the whole column; non-numeric cells (like `—`) are
+/// right-aligned to the same width.
+fn align_dots(cells: &[String]) -> Vec<String> {
+    let parts: Vec<(&str, &str)> = cells.iter()
+        .map(|c| match c.split_once(' ') {
+            Some((n, u)) => (n, u),
+            None => (c.as_str(), ""),
+        })
+        .collect();
+    let mut before = 0usize;
+    let mut after = 0usize;
+    for (n, _) in &parts {
+        if let Some(i) = n.find('.') {
+            before = before.max(i);
+            after = after.max(n.len() - i - 1);
+        }
+    }
+    let width = before + 1 + after;
+    parts.iter().map(|(n, u)| {
+        let num = if let Some(i) = n.find('.') {
+            format!("{:>before$}.{:<after$}", &n[..i], &n[i + 1..])
+        } else {
+            format!("{n:>width$}")
+        };
+        if u.is_empty() { num } else { format!("{num} {u}") }
+    }).collect()
+}
+
 /// Humanise an effort in person-months, choosing the largest sensible unit:
 /// person-years beyond 12 months, person-weeks below 2 months, person-days
 /// below a week.
@@ -91,11 +152,11 @@ fn format_text(report: &Report, full: bool, colors: Colors) -> String {
     out.push('\n');
     out.push_str("--- Tokens ---\n\n");
     if let Some(t) = report.llm_tokens {
-        out.push_str(&format!("{:44}= {}\n", "LLM tokens (DeepSeek V4)", t.deepseek_v4));
-        out.push_str(&format!("{:44}= {}\n", "LLM tokens (Claude Sonnet)", t.claude_sonnet));
+        out.push_str(&format!("{:44}= {}\n", "LLM tokens (DeepSeek V4)", human_tokens(t.deepseek_v4)));
+        out.push_str(&format!("{:44}= {}\n", "LLM tokens (Claude Sonnet)", human_tokens(t.claude_sonnet)));
     }
-    out.push_str(&format!("{:44}= {}\n", "Tree-sitter leaf tokens", report.nodes.leaf_tokens));
-    out.push_str(&format!("{:44}= {}\n", "Tree-sitter named nodes", report.nodes.named_nodes));
+    out.push_str(&format!("{:44}= {}\n", "Tree-sitter leaf tokens", human_tokens(report.nodes.leaf_tokens)));
+    out.push_str(&format!("{:44}= {}\n", "Tree-sitter named nodes", human_tokens(report.nodes.named_nodes)));
 
     // Concise default: one complexity line + schedule.
     if let Some(ref h) = report.halstead {
@@ -122,125 +183,160 @@ fn format_text(report: &Report, full: bool, colors: Colors) -> String {
     if let Some(ref s) = report.schedule {
         out.push_str("\n--- Schedule ---\n\n");
 
-        // Grouped table: rows are Metric / Effort / Team size / Schedule,
-        // columns are methodologies grouped into families. Each column has a
-        // distinct colour. Cells a model does not produce are "—".
-        //
-        // The "Token" methodology is LLM-based: its metric is the token
-        // count and its effort/schedule are the AI-plan time to process
-        // those tokens (no team size).
+        // Grouped, parameterised table. Rows are Metric / Effort / Team size /
+        // Schedule; columns are estimation methodologies grouped into
+        // families. Each column is a `MetricCol` with a label, a group, a
+        // colour, and the four row values — add a new methodology by pushing
+        // another `MetricCol`. Cells a model does not produce are "—".
         let months = |m: f64| human_duration(m * 30.44 * 24.0 * 3600.0);
         let halstead_schedule = report.halstead.as_ref().map(|h| human_duration(h.time_seconds))
             .unwrap_or_else(|| "—".to_string());
 
-        // Token column: metric = Claude token count, effort & schedule = AI
-        // plan time (default Max 20x), no team size.
-        let token_count = report.llm_tokens.map(|t| t.claude_sonnet).unwrap_or(0);
-        let ai_secs = crate::history::ai_time_seconds(token_count);
-        let token_metric = if token_count > 0 { format!("{token_count} tokens") } else { "—".to_string() };
-        let token_time = if token_count > 0 { human_duration(ai_secs) } else { "—".to_string() };
-
-        // Column spec: (group, label, colour, metric, effort, team, schedule)
-        struct Col<'a> {
-            group: &'a str,
-            label: &'a str,
+        struct MetricCol {
+            group: &'static str,
+            label: &'static str,
             color: u8,
             metric: String,
             effort: String,
             team: String,
             schedule: String,
         }
-        let cols = [
-            Col { group: "COCOMO", label: "COCOMO 1", color: 4,
-                metric: format!("{:.1} PM", s.cocomo.effort_person_months),
-                effort: human_person_months(s.cocomo.effort_person_months),
-                team: format!("{:.1}", s.cocomo.avg_people),
-                schedule: months(s.cocomo.schedule_months) },
-            Col { group: "COCOMO", label: "COCOMO 2", color: 2,
-                metric: format!("{:.1} PM", s.cocomo_ii.effort_person_months),
-                effort: human_person_months(s.cocomo_ii.effort_person_months),
-                team: format!("{:.1}", s.cocomo_ii.avg_people),
-                schedule: months(s.cocomo_ii.schedule_months) },
-            Col { group: "Putnam", label: "Putnam", color: 3,
-                metric: format!("{:.1} PM", s.cocomo_ii.effort_person_months),
-                effort: human_person_months(s.cocomo_ii.effort_person_months),
-                team: format!("{:.1}", s.putnam.avg_people),
-                schedule: months(s.putnam.schedule_months) },
-            Col { group: "Halstead", label: "Halstead", color: 5,
-                metric: format!("{:.1} PM", s.halstead_person_months),
-                effort: human_person_months(s.halstead_person_months),
-                team: "—".to_string(),
-                schedule: halstead_schedule },
-            Col { group: "Token", label: "Token", color: 6,
-                metric: token_metric,
-                effort: token_time.clone(),
-                team: "—".to_string(),
-                schedule: token_time },
-        ];
 
-        let n = cols.len();
-        // Column widths; index 0 is the row-label column.
-        let mut widths = [8, 0, 0, 0, 0, 0];
-        for (i, c) in cols.iter().enumerate() {
-            widths[i + 1] = c.label.len()
-                .max(c.metric.len()).max(c.effort.len())
-                .max(c.team.len()).max(c.schedule.len());
-        }
-
-        let render = |cells: &[String], color_fns: &[Option<u8>]| -> String {
-            let mut l = format!("{:<8}", cells[0]);
-            for (i, v) in cells[1..].iter().enumerate() {
-                let cell = format!("{:>width$}", v, width = widths[i + 1]);
-                let cell = match color_fns[i] {
-                    Some(c) => colors.ansi(&cell, c),
-                    None => cell,
-                };
-                l.push_str(&format!("  {cell}"));
-            }
-            l
+        // Token models: one column per LLM (Claude Max, OpenCode Go /
+        // DeepSeek V4). Metric is the token count; effort & schedule are the
+        // AI-plan time to process those tokens; no team size.
+        let token_cols: Vec<MetricCol> = match report.llm_tokens {
+            Some(t) => vec![
+                MetricCol {
+                    group: "Token", label: "Claude Max", color: 6,
+                    metric: if t.claude_sonnet > 0 { format!("{} tokens", human_tokens(t.claude_sonnet)) } else { "—".to_string() },
+                    effort: if t.claude_sonnet > 0 { human_duration(crate::history::ai_time_seconds(t.claude_sonnet)) } else { "—".to_string() },
+                    team: "—".to_string(),
+                    schedule: if t.claude_sonnet > 0 { human_duration(crate::history::ai_time_seconds(t.claude_sonnet)) } else { "—".to_string() },
+                },
+                MetricCol {
+                    group: "Token", label: "OpenCode Go", color: 6,
+                    metric: if t.deepseek_v4 > 0 { format!("{} tokens", human_tokens(t.deepseek_v4)) } else { "—".to_string() },
+                    effort: if t.deepseek_v4 > 0 { human_duration(crate::history::ai_time_seconds(t.deepseek_v4)) } else { "—".to_string() },
+                    team: "—".to_string(),
+                    schedule: if t.deepseek_v4 > 0 { human_duration(crate::history::ai_time_seconds(t.deepseek_v4)) } else { "—".to_string() },
+                },
+            ],
+            None => vec![],
         };
 
-        // Group header row: span the columns of each group.
-        let mut group_header = String::new();
-        let mut gi = 0;
-        while gi < n {
-            let g = cols[gi].group;
-            let mut span = 1;
-            while gi + span < n && cols[gi + span].group == g { span += 1; }
-            let label = g.to_string();
-            // combined width of the spanned columns
-            let w: usize = (0..span).map(|k| widths[gi + k + 1]).sum::<usize>() + 2 * (span - 1);
-            group_header.push_str(&format!("  {label:^width$}", width = w));
-            gi += span;
+        // Classical models: metric is code size (lines of code, with a k
+        // human suffix); effort in person-months; team size where the model
+        // has one.
+        let mut cols = vec![
+            MetricCol {
+                group: "COCOMO", label: "COCOMO 1", color: 4,
+                metric: format!("{:.1} k lines of code", s.ksloc),
+                effort: human_person_months(s.cocomo.effort_person_months),
+                team: format!("{:.1}", s.cocomo.avg_people),
+                schedule: months(s.cocomo.schedule_months),
+            },
+            MetricCol {
+                group: "COCOMO", label: "COCOMO 2", color: 2,
+                metric: format!("{:.1} k lines of code", s.ksloc),
+                effort: human_person_months(s.cocomo_ii.effort_person_months),
+                team: format!("{:.1}", s.cocomo_ii.avg_people),
+                schedule: months(s.cocomo_ii.schedule_months),
+            },
+            MetricCol {
+                group: "Putnam", label: "Putnam", color: 3,
+                metric: format!("{:.1} k lines of code", s.ksloc),
+                effort: human_person_months(s.cocomo_ii.effort_person_months),
+                team: format!("{:.1}", s.putnam.avg_people),
+                schedule: months(s.putnam.schedule_months),
+            },
+            MetricCol {
+                group: "Halstead", label: "Halstead", color: 5,
+                metric: match report.halstead.as_ref() {
+                    Some(h) => format!("{:.0} volume", h.volume),
+                    None => "—".to_string(),
+                },
+                effort: human_person_months(s.halstead_person_months),
+                team: "—".to_string(),
+                schedule: halstead_schedule,
+            },
+        ];
+        cols.extend(token_cols);
+
+        if cols.is_empty() {
+            out.push_str("(no schedule data)\n");
+        } else {
+            let n = cols.len();
+
+            // Align each column's 4 row values on the decimal point.
+            let mut aligned: Vec<[String; 4]> = Vec::with_capacity(n);
+            for c in &cols {
+                let cells = [c.metric.clone(), c.effort.clone(), c.team.clone(), c.schedule.clone()];
+                let a = align_dots(&cells);
+                aligned.push([a[0].clone(), a[1].clone(), a[2].clone(), a[3].clone()]);
+            }
+
+            // Column widths; index 0 is the row-label column.
+            let mut widths: Vec<usize> = vec![8];
+            for (i, c) in cols.iter().enumerate() {
+                let w = c.label.len()
+                    .max(aligned[i][0].len()).max(aligned[i][1].len())
+                    .max(aligned[i][2].len()).max(aligned[i][3].len());
+                widths.push(w);
+            }
+
+            let render = |cells: &[String], color_fns: &[Option<u8>]| -> String {
+                let mut l = format!("{:<8}", cells[0]);
+                for (i, v) in cells[1..].iter().enumerate() {
+                    let cell = format!("{:>width$}", v, width = widths[i + 1]);
+                    let cell = match color_fns[i] {
+                        Some(c) => colors.ansi(&cell, c),
+                        None => cell,
+                    };
+                    l.push_str(&format!("  {cell}"));
+                }
+                l
+            };
+
+            // Group header row: span the columns of each group.
+            let mut group_header = String::new();
+            let mut gi = 0;
+            while gi < n {
+                let g = cols[gi].group;
+                let mut span = 1;
+                while gi + span < n && cols[gi + span].group == g { span += 1; }
+                let w: usize = (0..span).map(|k| widths[gi + k + 1]).sum::<usize>() + 2 * (span - 1);
+                group_header.push_str(&format!("  {g:^width$}", width = w));
+                gi += span;
+            }
+            out.push_str(&format!("{:<8}{group_header}\n", ""));
+
+            // Column header row.
+            let mut hdr = format!("{:<8}", "Method");
+            for (i, c) in cols.iter().enumerate() {
+                let cell = format!("{:>width$}", c.label, width = widths[i + 1]);
+                hdr.push_str(&format!("  {}", colors.ansi(&cell, c.color)));
+            }
+            out.push_str(&format!("{hdr}\n"));
+
+            let row_colors: Vec<Option<u8>> = cols.iter().map(|c| Some(c.color)).collect();
+
+            let mut metric_row = vec!["Metric".to_string()];
+            metric_row.extend(aligned.iter().map(|a| a[0].clone()));
+            out.push_str(&format!("{}\n", render(&metric_row, &row_colors)));
+
+            let mut effort_row = vec!["Effort".to_string()];
+            effort_row.extend(aligned.iter().map(|a| a[1].clone()));
+            out.push_str(&format!("{}\n", render(&effort_row, &row_colors)));
+
+            let mut team_row = vec!["Team size".to_string()];
+            team_row.extend(aligned.iter().map(|a| a[2].clone()));
+            out.push_str(&format!("{}\n", render(&team_row, &row_colors)));
+
+            let mut schedule_row = vec!["Schedule".to_string()];
+            schedule_row.extend(aligned.iter().map(|a| a[3].clone()));
+            out.push_str(&format!("{}\n", render(&schedule_row, &row_colors)));
         }
-        out.push_str(&format!("{:<8}{group_header}\n", ""));
-
-        // Column header row.
-        let mut hdr = format!("{:<8}", "Method");
-        for (i, c) in cols.iter().enumerate() {
-            let cell = format!("{:>width$}", c.label, width = widths[i + 1]);
-            hdr.push_str(&format!("  {}", colors.ansi(&cell, c.color)));
-        }
-        out.push_str(&format!("{hdr}\n"));
-
-        // Row label column + a row per metric.
-        let row_colors: Vec<Option<u8>> = cols.iter().map(|c| Some(c.color)).collect();
-
-        let mut metric_row = vec!["Metric".to_string()];
-        metric_row.extend(cols.iter().map(|c| c.metric.clone()));
-        out.push_str(&format!("{}\n", render(&metric_row, &row_colors)));
-
-        let mut effort_row = vec!["Effort".to_string()];
-        effort_row.extend(cols.iter().map(|c| c.effort.clone()));
-        out.push_str(&format!("{}\n", render(&effort_row, &row_colors)));
-
-        let mut team_row = vec!["Team size".to_string()];
-        team_row.extend(cols.iter().map(|c| c.team.clone()));
-        out.push_str(&format!("{}\n", render(&team_row, &row_colors)));
-
-        let mut schedule_row = vec!["Schedule".to_string()];
-        schedule_row.extend(cols.iter().map(|c| c.schedule.clone()));
-        out.push_str(&format!("{}\n", render(&schedule_row, &row_colors)));
     }
 
     if full {
@@ -293,10 +389,10 @@ pub fn format_history(report: &HistoryReport, colors: Colors) -> String {
     out.push_str(&format!("{:44}= {}\n", "Commits analyzed", report.commits));
     out.push_str(&format!("{:44}= {}\n", "Lines added", report.total_added_lines));
     out.push_str(&format!("{:44}= {}\n", "Lines removed", report.total_removed_lines));
-    out.push_str(&format!("{:44}= {}\n", "Changed tokens (Claude)", report.total_changed_tokens));
+    out.push_str(&format!("{:44}= {}\n", "Changed tokens (Claude)", human_tokens(report.total_changed_tokens)));
 
     if let Some(llm) = &report.llm_changed_tokens {
-        out.push_str(&format!("{:44}= {}\n", "Changed tokens (DeepSeek V4)", llm.deepseek_v4));
+        out.push_str(&format!("{:44}= {}\n", "Changed tokens (DeepSeek V4)", human_tokens(llm.deepseek_v4)));
     }
 
     if !report.by_language.is_empty() {
@@ -312,7 +408,7 @@ pub fn format_history(report: &HistoryReport, colors: Colors) -> String {
             };
             out.push_str(&format!(
                 "{} +{:>8}  -{:>8}  {:>12} tokens\n",
-                name_field, lang.added_lines, lang.removed_lines, lang.changed_tokens
+                name_field, lang.added_lines, lang.removed_lines, human_tokens(lang.changed_tokens)
             ));
         }
     }
@@ -322,12 +418,12 @@ pub fn format_history(report: &HistoryReport, colors: Colors) -> String {
         for e in &report.ai_estimates {
             out.push_str(&format!(
                 "{:44}= {} ({} / 5-hour window)\n",
-                e.plan, human_duration(e.elapsed_seconds), e.tokens_per_5h
+                e.plan, human_duration(e.elapsed_seconds), human_tokens(e.tokens_per_5h)
             ));
             out.push_str(&format!(
                 "  {:44}= {} changed tokens; {} 5-hour windows\n",
                 "",
-                e.changed_tokens, e.windows_5h
+                human_tokens(e.changed_tokens), e.windows_5h
             ));
         }
         out.push_str("\nCalibration is approximate (Anthropic publishes plan multiples,\n");
@@ -340,6 +436,37 @@ pub fn format_history(report: &HistoryReport, colors: Colors) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_human_tokens_suffixes() {
+        assert_eq!(human_tokens(0), "0");
+        assert_eq!(human_tokens(999), "999");
+        assert_eq!(human_tokens(1000), "1.00k");
+        assert_eq!(human_tokens(12345), "12.3k");
+        assert_eq!(human_tokens(100000), "100k");
+        assert_eq!(human_tokens(1234567), "1.23M");
+        assert_eq!(human_tokens(1234567890), "1.23B");
+        assert_eq!(human_tokens(2_000_000_000_000), "2.00T");
+    }
+
+    #[test]
+    fn test_align_dots() {
+        let cells = vec![
+            "5.7 person-months".to_string(),
+            "6.2 person-months".to_string(),
+            "6.4 person-years".to_string(),
+            "—".to_string(),
+        ];
+        let aligned = align_dots(&cells);
+        // The decimal points should line up: each numeric value is padded so
+        // the '.' sits at the same column. The em-dash cell has no dot and is
+        // skipped.
+        let dots: Vec<usize> = aligned.iter()
+            .filter(|s| s.trim() != "—")
+            .map(|s| s.find('.').unwrap())
+            .collect();
+        assert!(dots.windows(2).all(|w| w[0] == w[1]), "dots not aligned: {aligned:?}");
+    }
 
     #[test]
     fn test_human_person_months_units() {
