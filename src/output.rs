@@ -17,7 +17,8 @@ pub(crate) struct MetricCol {
     /// Foreground colour for this column (1=red..7=white).
     pub color: u8,
     /// Background colour shared by all columns in the same group.
-    pub bg: u8,
+    /// `None` = no background (transparent, matches the terminal).
+    pub bg: Option<u8>,
     pub metric: String,
     pub effort: String,
     pub team: String,
@@ -60,13 +61,22 @@ fn render_schedule_table(cols: &[MetricCol], colors: &Colors) -> String {
         widths.push(w);
     }
 
+    // Colour a cell: bright foreground over the column's group background,
+    // or just bright foreground when the group has no background.
+    let paint = |cell: &str, fg: u8, bg: Option<u8>| -> String {
+        match bg {
+            Some(b) => colors.on_bg(cell, fg, b),
+            None => colors.ansi(cell, fg),
+        }
+    };
+
     let render = |cells: &[String], fgs: &[u8]| -> String {
         let mut l = format!("{:<label_w$}", cells[0]);
         for (i, v) in cells[1..].iter().enumerate() {
             // Left-align: align_dots pads the integer part so the '.' sits at
             // a fixed index from the cell start; right-aligning would undo it.
             let cell = format!("{:<width$}", v, width = widths[i + 1]);
-            let cell = colors.on_bg(&cell, fgs[i], cols[i].bg);
+            let cell = paint(&cell, fgs[i], cols[i].bg);
             l.push_str(&format!("  {cell}"));
         }
         l
@@ -81,7 +91,7 @@ fn render_schedule_table(cols: &[MetricCol], colors: &Colors) -> String {
         while gi + span < n && cols[gi + span].group == g { span += 1; }
         let w: usize = (0..span).map(|k| widths[gi + k + 1]).sum::<usize>() + 2 * (span - 1);
         let label = format!("{g:^width$}", width = w);
-        group_header.push_str(&format!("  {}", colors.on_bg(&label, 7, cols[gi].bg)));
+        group_header.push_str(&format!("  {}", paint(&label, 7, cols[gi].bg)));
         gi += span;
     }
     out.push_str(&format!("{:<label_w$}{group_header}\n", ""));
@@ -90,7 +100,7 @@ fn render_schedule_table(cols: &[MetricCol], colors: &Colors) -> String {
     let mut hdr = format!("{:<label_w$}", "Method");
     for (i, c) in cols.iter().enumerate() {
         let cell = format!("{:<width$}", c.label, width = widths[i + 1]);
-        hdr.push_str(&format!("  {}", colors.on_bg(&cell, c.color, c.bg)));
+        hdr.push_str(&format!("  {}", paint(&cell, c.color, c.bg)));
     }
     out.push_str(&format!("{hdr}\n"));
 
@@ -158,14 +168,14 @@ fn build_schedule_cols(
     let token_cols: Vec<MetricCol> = match llm_tokens {
         Some(t) => vec![
             MetricCol {
-                group: "AI", label: "Claude Max", color: 6, bg: 100,
+                group: "AI", label: "Claude Max", color: 6, bg: Some(100),
                 metric: if t.claude_sonnet > 0 { format!("{} tokens", human_tokens(t.claude_sonnet)) } else { "—".to_string() },
                 effort: if t.claude_sonnet > 0 { ai_dur(t.claude_sonnet) } else { "—".to_string() },
                 team: "—".to_string(),
                 schedule: if t.claude_sonnet > 0 { ai_dur(t.claude_sonnet) } else { "—".to_string() },
             },
             MetricCol {
-                group: "AI", label: "DeepSeek V4 (OpenCode)", color: 1, bg: 100,
+                group: "AI", label: "DeepSeek V4 (OpenCode)", color: 1, bg: Some(100),
                 metric: if t.deepseek_v4 > 0 { format!("{} tokens", human_tokens(t.deepseek_v4)) } else { "—".to_string() },
                 effort: if t.deepseek_v4 > 0 { ai_dur(t.deepseek_v4) } else { "—".to_string() },
                 team: "—".to_string(),
@@ -179,35 +189,35 @@ fn build_schedule_cols(
     // suffix); effort in person-months; team size where the model has one.
     let mut cols = vec![
         MetricCol {
-            group: "Kloc-driven", label: "COCOMO 1", color: 4, bg: 100,
+            group: "Kloc-driven", label: "COCOMO 1", color: 4, bg: Some(100),
             metric: format!("{:.1} k lines of code", s.ksloc),
             effort: human_person_months(s.cocomo.effort_person_months),
             team: format!("{:.1}", s.cocomo.avg_people),
             schedule: months(s.cocomo.schedule_months),
         },
         MetricCol {
-            group: "Kloc-driven", label: "COCOMO 2", color: 2, bg: 100,
+            group: "Kloc-driven", label: "COCOMO 2", color: 2, bg: Some(100),
             metric: format!("{:.1} k lines of code", s.ksloc),
             effort: human_person_months(s.cocomo_ii.effort_person_months),
             team: format!("{:.1}", s.cocomo_ii.avg_people),
             schedule: months(s.cocomo_ii.schedule_months),
         },
         MetricCol {
-            group: "Kloc-driven", label: "Putnam", color: 3, bg: 100,
+            group: "Kloc-driven", label: "Putnam", color: 3, bg: Some(100),
             metric: format!("{:.1} k lines of code", s.ksloc),
             effort: human_person_months(s.cocomo_ii.effort_person_months),
             team: format!("{:.1}", s.putnam.avg_people),
             schedule: months(s.putnam.schedule_months),
         },
         MetricCol {
-            group: "AST", label: "Tree-sitter", color: 7, bg: 40,
+            group: "AST", label: "Tree-sitter", color: 7, bg: None,
             metric: human_metric,
             effort: human_duration_str.clone(),
             team: "—".to_string(),
             schedule: human_duration_str,
         },
         MetricCol {
-            group: "AST", label: "Halstead", color: 5, bg: 40,
+            group: "AST", label: "Halstead", color: 5, bg: None,
             metric: match halstead_volume {
                 Some(v) => format!("{} volume", human_tokens(v as u64)),
                 None => "—".to_string(),
@@ -343,6 +353,21 @@ fn human_person_months(pm: f64) -> String {
 fn format_text(report: &Report, full: bool, colors: Colors) -> String {
     let mut out = String::new();
     out.push_str("SLOC by language:\n\n");
+    // Column headers, coloured to match the schedule-table metrics
+    // (Kloc-driven = blue, files = yellow, tree-sitter = white, AI = cyan).
+    let loc_fg = 4u8;     // blue (Kloc-driven LOC)
+    let files_fg = 3u8;   // yellow
+    let ts_fg = 7u8;      // white (tree-sitter)
+    let ai_fg = 6u8;      // cyan (AI)
+    let hdr = format!(
+        "{:<12}{}{}{}{}\n",
+        "Language",
+        colors.ansi(&format!("{:>10}", "LOC"), loc_fg),
+        colors.ansi(&format!("{:>8}", "Files"), files_fg),
+        colors.ansi(&format!("{:>12}", "Tree-sit. tok"), ts_fg),
+        colors.ansi(&format!("{:>12}", "AI tokens"), ai_fg),
+    );
+    out.push_str(&hdr);
     for lang in &report.by_language {
         let pct = if report.total_sloc > 0 {
             (lang.sloc as f64 / report.total_sloc as f64) * 100.0
@@ -355,7 +380,20 @@ fn format_text(report: &Report, full: bool, colors: Colors) -> String {
             },
             None => name_field,
         };
-        out.push_str(&format!("{} {:>8} ({:.2}%)\n", name_field, lang.sloc, pct));
+        let sloc = format!("{:>10}", lang.sloc);
+        let files = format!("{:>8}", lang.files);
+        let leaf = format!("{:>12}", human_tokens(lang.leaf_tokens));
+        let ai = format!("{:>12}", human_tokens(lang.ai_tokens));
+        // Colour after padding so ANSI codes don't affect column alignment.
+        out.push_str(&format!(
+            "{}{}{}{}{} ({:.2}%)\n",
+            name_field,
+            colors.ansi(&sloc, loc_fg),
+            colors.ansi(&files, files_fg),
+            colors.ansi(&leaf, ts_fg),
+            colors.ansi(&ai, ai_fg),
+            pct,
+        ));
     }
 
     out.push('\n');
@@ -563,7 +601,7 @@ mod tests {
     // ---- Schedule-table layout tests -------------------------------------
 
     fn col(group: &'static str, label: &'static str, metric: &str, effort: &str, team: &str, schedule: &str) -> MetricCol {
-        MetricCol { group, label, color: 1, bg: 0, metric: metric.to_string(), effort: effort.to_string(), team: team.to_string(), schedule: schedule.to_string() }
+        MetricCol { group, label, color: 1, bg: None, metric: metric.to_string(), effort: effort.to_string(), team: team.to_string(), schedule: schedule.to_string() }
     }
 
     fn csi_strip(s: &str) -> String {

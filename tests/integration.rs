@@ -13,7 +13,8 @@ fn test_dir(name: &str) -> PathBuf {
 }
 
 fn assert_contains(report: &str, lang: &str, sloc: u64) {
-    let pattern = format!("{lang:12} {sloc:>8}");
+    // The per-language row is "Name<12><loc right-aligned to 10>".
+    let pattern = format!("{lang:12}{sloc:>10}");
     assert!(
         report.contains(&pattern),
         "Expected '{}' in report.\nFull report:\n{}",

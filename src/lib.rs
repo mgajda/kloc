@@ -167,7 +167,8 @@ pub fn run(paths: &[PathBuf], filter: &LanguageFilter, opts: &RunOptions) -> Rep
 
     let elapsed = start.elapsed().as_secs_f64();
 
-    let mut counts: BTreeMap<String, (u64, u64, u64)> = BTreeMap::new();
+    // Per-language aggregate: (sloc, files, comments, leaf_tokens, ai_tokens).
+    let mut counts: BTreeMap<String, (u64, u64, u64, u64, u64)> = BTreeMap::new();
     let mut halstead_agg: BTreeMap<String, complexity::HalsteadMetrics> = BTreeMap::new();
     let mut mccabe_agg: BTreeMap<String, complexity::McCabeMetrics> = BTreeMap::new();
     let mut nodes_agg = complexity::NodeCounts::default();
@@ -185,8 +186,11 @@ pub fn run(paths: &[PathBuf], filter: &LanguageFilter, opts: &RunOptions) -> Rep
         }
         nodes_agg.named_nodes += r.count.nodes.named_nodes;
         nodes_agg.leaf_tokens += r.count.nodes.leaf_tokens;
-        let e = counts.entry(r.name.clone()).or_insert((0, 0, 0));
+        let e = counts.entry(r.name.clone()).or_insert((0, 0, 0, 0, 0));
         e.0 += r.count.sloc; e.1 += 1; e.2 += r.count.comments;
+        e.3 += r.count.nodes.leaf_tokens;
+        #[cfg(feature = "tokens")]
+        { e.4 += r.llm_tokens.claude_sonnet; }
 
         if let Some(ref cx) = r.cx {
             let h = halstead_agg.entry(r.name.clone()).or_default();

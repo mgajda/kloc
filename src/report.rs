@@ -10,6 +10,8 @@ pub struct LanguageTotal {
     pub sloc: u64,
     pub comments: u64,
     pub files: u64,
+    pub leaf_tokens: u64,
+    pub ai_tokens: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -31,7 +33,7 @@ pub struct Report {
 impl Report {
     #[allow(clippy::too_many_arguments)]
     pub fn from_data(
-        counts: BTreeMap<String, (u64, u64, u64)>,
+        counts: BTreeMap<String, (u64, u64, u64, u64, u64)>,
         cx_halstead: BTreeMap<String, complexity::HalsteadMetrics>,
         cx_mccabe: BTreeMap<String, complexity::McCabeMetrics>,
         nodes: complexity::NodeCounts,
@@ -42,7 +44,9 @@ impl Report {
     ) -> Self {
         let mut by_language: Vec<LanguageTotal> = counts
             .into_iter()
-            .map(|(name, (sloc, files, comments))| LanguageTotal { name, sloc, comments, files })
+            .map(|(name, (sloc, files, comments, leaf, ai))| LanguageTotal {
+                name, sloc, comments, files, leaf_tokens: leaf, ai_tokens: ai,
+            })
             .collect();
         by_language.sort_by(|a, b| b.sloc.cmp(&a.sloc));
 
