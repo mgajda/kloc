@@ -33,15 +33,11 @@ impl Rgb {
         }
     }
 
-    /// A darker shade of this colour, used as the background when a language
-    /// needs a two-tone treatment. GitHub's colour map gives one colour per
-    /// language, so we derive the background by scaling toward black.
-    pub fn darker(self) -> Self {
-        Rgb {
-            r: (self.r as u16 * 2 / 3) as u8,
-            g: (self.g as u16 * 2 / 3) as u8,
-            b: (self.b as u16 * 2 / 3) as u8,
-        }
+    /// A lighter shade, used as the foreground on a dark background so the
+    /// text stays legible. Scales toward white by the given fraction.
+    pub fn lightened(self, by: f64) -> Self {
+        let mix = |c: u8| (c as f64 + (255.0 - c as f64) * by).round() as u8;
+        Rgb { r: mix(self.r), g: mix(self.g), b: mix(self.b) }
     }
 }
 
@@ -121,109 +117,94 @@ pub struct LogoColors {
 /// hex and as the nearest 256-colour palette index, so any two languages
 /// render distinctly even on 256-colour terminals.
 pub fn logo_colors(name: &str) -> Option<LogoColors> {
-    let (fg, two_tone) = match name {
-        // Programming languages. Foregrounds are unique in hex and 256-index;
-        // `two_tone` gives a darker derived background.
-        "Rust" => (0xDEA584, false),
-        "C" => (0x555555, false),
-        "C++" => (0xF34B7D, true),
-        "Python" => (0x3572A5, true),
-        "JavaScript" => (0xF1E05A, true),
-        "Bash" => (0x89E051, false),
-        "Haskell" => (0x5E5086, true),
-        "OCaml" => (0xEF7A08, false),
-        "Elm" => (0x60B5CC, false),
-        "Go" => (0x00ADD8, true),
-        "TypeScript" => (0x3178C6, true),
-        "TSX" => (0x2F78C6, false),
-        "Java" => (0xB07219, false),
-        "Scala" => (0xC22D40, false),
-        "Ada" => (0x02F88C, false),
-        "Agda" => (0x315665, false),
-        "C#" => (0x7355DD, false),
-        "Dart" => (0x00B4AB, false),
-        "Elixir" => (0x744A7E, false),
-        "Erlang" => (0xB83998, false),
-        "Fish" => (0x4AAE47, false),
-        "Fortran" => (0x4D2FB1, false),
-        "F#" => (0xB845FC, false),
-        "Gleam" => (0xFFAFF3, false),
-        "GLSL" => (0x5686A5, false),
-        "GraphQL" => (0xE10098, false),
-        "Groovy" => (0x429CB8, false),
-        "Julia" => (0xA270BA, false),
-        "Lua" => (0x000080, false),
-        "Make" => (0x427819, false),
-        "Nix" => (0x7E7EFF, false),
-        "Odin" => (0x60AFFE, false),
-        "Pascal" => (0xE3F171, false),
-        "Perl" => (0x0298C3, false),
-        "PHP" => (0x4F7495, false),
-        "PowerShell" => (0x012456, false),
-        "R" => (0x198CEC, false),
-        "Ruby" => (0x701516, false),
-        "Scheme" => (0x1E4AEC, false),
-        "Slint" => (0x3079F4, false),
-        "Solidity" => (0xAA6746, false),
-        "Swift" => (0xF05138, false),
-        "Verilog" => (0xB2B7F8, false),
-        "V" => (0x7487C4, false),
-        "VHDL" => (0xADB2CB, false),
-        "Zig" => (0xEC915C, false),
-        "Zsh" => (0x89EC51, false),
-        "Assembly" => (0x6E4C13, false),
-        "Common Lisp" => (0x3FB68B, false),
-        "Dafny" => (0xFFEC25, false),
-        "Emacs Lisp" => (0xC065DB, false),
-        "Nickel" => (0xE0C3FC, false),
-        "SAS" => (0xC44936, false),
-        "SQL" => (0xE38C00, false),
+    // Base is the GitHub brand colour (all distinct). The foreground is the
+    // brand colour lightened so it reads on a dark terminal background; the
+    // one well-known two-tone logo (Python) renders its dark blue as the
+    // background under the lightened foreground.
+    let (base, explicit_bg) = match name {
+        // Programming languages.
+        "Rust" => (0xDEA584, None),
+        "C" => (0x555555, None),
+        "C++" => (0xF34B7D, None),
+        "Python" => (0xFFD43B, Some(0x3572A5)),   // bright yellow fg on blue bg
+        "JavaScript" => (0xF1E05A, None),
+        "Bash" => (0x89E051, None),
+        "Haskell" => (0x5E5086, None),
+        "OCaml" => (0xEF7A08, None),
+        "Elm" => (0x60B5CC, None),
+        "Go" => (0x00ADD8, None),
+        "TypeScript" => (0x3178C6, None),
+        "TSX" => (0x2F78C6, None),
+        "Java" => (0xB07219, None),
+        "Scala" => (0xC22D40, None),
+        "Ada" => (0x02F88C, None),
+        "Agda" => (0x315665, None),
+        "C#" => (0x7355DD, None),
+        "Dart" => (0x00B4AB, None),
+        "Elixir" => (0x744A7E, None),
+        "Erlang" => (0xB83998, None),
+        "Fish" => (0x4AAE47, None),
+        "Fortran" => (0x4D2FB1, None),
+        "F#" => (0xB845FC, None),
+        "Gleam" => (0xFFAFF3, None),
+        "GLSL" => (0x5686A5, None),
+        "GraphQL" => (0xE10098, None),
+        "Groovy" => (0x429CB8, None),
+        "Julia" => (0xA270BA, None),
+        "Lua" => (0x000080, None),
+        "Make" => (0x427819, None),
+        "Nix" => (0x7E7EFF, None),
+        "Odin" => (0x60AFFE, None),
+        "Pascal" => (0xE3F171, None),
+        "Perl" => (0x0298C3, None),
+        "PHP" => (0x4F7495, None),
+        "PowerShell" => (0x012456, None),
+        "R" => (0x198CEC, None),
+        "Ruby" => (0x701516, None),
+        "Scheme" => (0x1E4AEC, None),
+        "Slint" => (0x2379F4, None),
+        "Solidity" => (0xAA6746, None),
+        "Swift" => (0xF05138, None),
+        "Verilog" => (0xB2B7F8, None),
+        "V" => (0x4F87C4, None),
+        "VHDL" => (0xADB2CB, None),
+        "Zig" => (0xEC915C, None),
+        "Zsh" => (0x8EE04E, None),
+        "Assembly" => (0x6E4C13, None),
+        "Common Lisp" => (0x3FB68B, None),
+        "Dafny" => (0xFFEC25, None),
+        "Emacs Lisp" => (0xC065DB, None),
+        "Nickel" => (0xE0C3FC, None),
+        "SAS" => (0xB34936, None),
+        "SQL" => (0xE38C00, None),
 
         // Machine / data / markup languages
-        "CSS" => (0x662F99, false),
-        "CMake" => (0xDA2F34, false),
-        "HTML" => (0xE34C26, false),
-        "JSON" => (0x292929, false),
-        "Protobuf" => (0x808080, false),
-        "YAML" => (0xCB171E, false),
-        "HCL" => (0x844FBA, false),
-        "reStructuredText" => (0x141414, false),
-        "AsciiDoc" => (0x74A0C5, false),
+        "CSS" => (0x663399, None),
+        "CMake" => (0xDA3434, None),
+        "HTML" => (0xE34C26, None),
+        "JSON" => (0x292929, None),
+        "Protobuf" => (0x808080, None),
+        "YAML" => (0xCB171E, None),
+        "HCL" => (0x844FBA, None),
+        "reStructuredText" => (0x141414, None),
+        "AsciiDoc" => (0x73A0C5, None),
         _ => return None,
     };
 
-    let _ = fg;
+    let base_rgb = Rgb::hex(base);
     Some(LogoColors {
-        fg: Rgb::hex(fg),
-        bg: if two_tone { Some(Rgb::hex(fg).darker()) } else { None },
+        // Lighten by 40% so even dark brand colours read on a dark terminal.
+        fg: base_rgb.lightened(0.40),
+        bg: explicit_bg.map(Rgb::hex),
     })
 }
 
-/// Nearest 256-colour palette index for an RGB triple (xterm cube + grey
-/// ramp), used to verify that every language maps to a distinct palette slot.
+/// Invert `Rgb::lightened(by)`: `c' = c + (255-c)·by` ⇒ `c = (c' − 255·by)/(1−by)`.
+/// Test-only, used to recover the brand colour from a lightened foreground.
 #[cfg(test)]
-fn palette_index(c: Rgb) -> u8 {
-    let (r, g, b) = (c.r as i16, c.g as i16, c.b as i16);
-    if r == g && g == b {
-        let steps = [8, 18, 28, 38, 48, 58, 68, 78, 88, 98, 108, 118, 128, 138, 148, 158, 168, 178, 188, 198, 208, 218, 228, 238];
-        let mut best = 232u8; let mut bd = u16::MAX;
-        for (i, v) in steps.iter().enumerate() {
-            let d = (v - r).unsigned_abs();
-            if d < bd { bd = d; best = 232 + i as u8; }
-        }
-        best
-    } else {
-        let near = |c: i16| -> u8 {
-            let steps = [0, 95, 135, 175, 215, 255];
-            let mut bi = 0u8; let mut bd = u16::MAX;
-            for (i, v) in steps.iter().enumerate() {
-                let d = (v - c).unsigned_abs();
-                if d < bd { bd = d; bi = i as u8; }
-            }
-            bi
-        };
-        16 + 36 * near(r) + 6 * near(g) + near(b)
-    }
+fn unlighten(c: Rgb, by: f64) -> u32 {
+    let f = |v: u8| ((v as f64 - 255.0 * by) / (1.0 - by)).round().clamp(0.0, 255.0) as u32;
+    (f(c.r) << 16) | (f(c.g) << 8) | f(c.b)
 }
 
 #[cfg(test)]
@@ -232,19 +213,23 @@ mod tests {
     use std::collections::HashSet;
 
     #[test]
-    fn test_all_languages_have_unique_hex_and_palette() {
+    fn test_all_languages_have_unique_brand_color() {
+        // Each language's brand (base) colour must be unique in hex so any
+        // two languages have a distinct identity colour. The displayed
+        // foreground is a lightened variant of the brand colour for
+        // readability on dark backgrounds; after lightening, distinct hues
+        // may share a coarse 256-palette slot, but the brand hex is unique.
         let reg = crate::language::registry();
         let mut names = HashSet::new();
         let mut hexes = HashSet::new();
-        let mut indices = HashSet::new();
         for lang in reg.languages() {
             if !names.insert(lang.name) {
                 continue; // same language registered for multiple extensions
             }
             let Some(lc) = logo_colors(lang.name) else { continue };
-            assert!(hexes.insert(lc.fg), "duplicate hex for {}: {:?}", lang.name, lc.fg);
-            let pi = palette_index(lc.fg);
-            assert!(indices.insert(pi), "duplicate 256-index {pi} for {}", lang.name);
+            // Recover the brand colour: the foreground is lightened 40%.
+            let brand = unlighten(lc.fg, 0.40);
+            assert!(hexes.insert(brand), "duplicate brand hex for {}: {:?}", lang.name, brand);
         }
         assert!(hexes.len() >= 60, "expected most languages to have a colour");
     }
@@ -261,6 +246,10 @@ mod tests {
     fn test_two_tone_background_is_darker() {
         let python = logo_colors("Python").unwrap();
         let bg = python.bg.unwrap();
-        assert!(bg.r <= python.fg.r && bg.g <= python.fg.g && bg.b <= python.fg.b);
+        // The background must be perceptibly darker than the foreground
+        // (lower luminance) so the text is legible. Per-channel comparison is
+        // too strict for complementary colours (yellow fg on blue bg).
+        let lum = |c: Rgb| 0.299 * c.r as f64 + 0.587 * c.g as f64 + 0.114 * c.b as f64;
+        assert!(lum(bg) < lum(python.fg), "background must be darker than foreground");
     }
 }

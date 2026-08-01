@@ -148,7 +148,7 @@ pub fn ai_duration(tokens: u64, caps: AiCaps) -> String {
     if caps.window_5h > 0 {
         let windows = effective / caps.window_5h;
         if windows > 0 {
-            parts.push(format!("{windows} 5h window{}", if windows == 1 { "" } else { "s" }));
+            parts.push(format!("{windows}x 5h window{}", if windows == 1 { "" } else { "s" }));
             effective %= caps.window_5h;
         }
     }
@@ -521,11 +521,11 @@ mod tests {
         let caps = AiCaps::from_plan(AiPlan::Max20);
         // ai_duration takes output tokens; effective = tokens × 6.
         // 2 windows: effective 440000 → output 73334.
-        assert_eq!(ai_duration(73_334, caps), "2 5h windows");
+        assert_eq!(ai_duration(73_334, caps), "2x 5h windows");
         // 1 day: effective 880000 → output 146667.
         assert_eq!(ai_duration(146_667, caps), "1 day");
         // 1 day + 2 windows: effective 1320000 → output 220000.
-        assert_eq!(ai_duration(220_000, caps), "1 day, 2 5h windows");
+        assert_eq!(ai_duration(220_000, caps), "1 day, 2x 5h windows");
         // 2 months: effective 38280000 → output 6380000.
         assert_eq!(ai_duration(6_380_000, caps), "2 months");
         // Zero output → "0 s".

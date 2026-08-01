@@ -536,7 +536,7 @@ pub fn format_history(report: &HistoryReport, colors: Colors) -> String {
         out.push_str("\n--- AI time to process ---\n\n");
         for e in &report.ai_estimates {
             out.push_str(&format!(
-                "{:44}= {} 5-hour windows ({} / window)\n",
+                "{:44}= {}x 5-hour windows ({} / window)\n",
                 e.plan, e.windows_5h, human_tokens(e.tokens_per_5h)
             ));
             out.push_str(&format!(
