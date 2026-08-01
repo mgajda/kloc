@@ -317,4 +317,9 @@ impl LanguageRegistry {
     pub fn languages(&self) -> &[LanguageSpec] {
         &self.languages
     }
+
+    /// Find a language spec by its display name.
+    pub fn find_by_name(&self, name: &str) -> Option<&LanguageSpec> {
+        self.languages.iter().find(|l| l.name == name)
+    }
 }

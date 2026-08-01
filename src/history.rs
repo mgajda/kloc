@@ -186,6 +186,8 @@ pub struct HistoryReport {
     pub llm_changed_tokens: Option<TokenCounts>,
     /// Effort/schedule models estimated from the parsed diff-added lines.
     pub schedule: crate::schedule::ScheduleReport,
+    /// Aggregated Halstead metrics from the diff added/removed source.
+    pub halstead: Option<crate::complexity::HalsteadMetrics>,
     /// Human-oriented tree-sitter token count estimated from parsed diff LOC
     /// (≈4 tokens per added line — the midpoint of 200–2000 tokens per
     /// 50–500 LOC).
@@ -214,6 +216,8 @@ pub fn run_history(
     // Per-commit buffers, flushed to the tokenizer at each commit boundary to
     // keep memory bounded by a single commit's diff.
     let mut per_lang: BTreeMap<String, PerLang> = BTreeMap::new();
+    // Aggregated Halstead metrics per language, summed across all commits.
+    let mut halstead_agg: BTreeMap<String, crate::complexity::HalsteadMetrics> = BTreeMap::new();
     // Effort-relevant lines: only parsed languages contribute to the
     // schedule estimate. Unparsed/generated files are counted separately
     // (`all_added`/`all_removed`) so the totals reflect every diff line, but
@@ -232,7 +236,7 @@ pub fn run_history(
         let line = line.map_err(|e| format!("reading git log: {e}"))?;
         if let Some(hash) = line.strip_prefix("commit ") {
             if !new_commit {
-                flush(&mut per_lang, &mut llm, &mut total_added, &mut total_removed);
+                flush(&mut per_lang, &mut halstead_agg, registry, &mut llm, &mut total_added, &mut total_removed);
             }
             let _ = hash;
             commits += 1;
@@ -246,15 +250,19 @@ pub fn run_history(
         } else if let Some(content) = line.strip_prefix('+') {
             // Only lines within a detected, filter-matching language are
             // parsed; the rest are counted (all_added) but not in effort.
+            // Blank added lines don't contribute to SLOC/effort, matching the
+            // source-tree SLOC count, but their bytes still feed the token
+            // and Halstead accumulators.
             let is_parsed = current_spec.is_some_and(|s| filter.matches(s));
             all_added += 1;
             if is_parsed {
+                let non_blank = !content.trim().is_empty();
                 let name = current_spec.unwrap().name.to_string();
                 let e = per_lang.entry(name).or_default();
                 if let Some(f) = &current_file {
                     e.files.insert(f.clone());
                 }
-                e.added_lines += 1;
+                if non_blank { e.added_lines += 1; }
                 e.added_bytes.push(b'\n');
                 e.added_bytes.extend_from_slice(content.as_bytes());
             }
@@ -273,7 +281,7 @@ pub fn run_history(
             }
         }
     }
-    flush(&mut per_lang, &mut llm, &mut total_added, &mut total_removed);
+    flush(&mut per_lang, &mut halstead_agg, registry, &mut llm, &mut total_added, &mut total_removed);
 
     let total_changed_tokens = llm.claude_sonnet;
     let ai_estimates = ai_plans.iter().map(|plan| {
@@ -293,6 +301,8 @@ pub fn run_history(
         changed_tokens: p.added_tokens + p.removed_tokens,
     }).collect();
 
+    let halstead = aggregate_halstead(&halstead_agg);
+
     Ok(HistoryReport {
         range: build_range(from, to).unwrap_or_else(|| "full history".to_string()),
         commits,
@@ -309,11 +319,41 @@ pub fn run_history(
             #[cfg(not(feature = "tokens"))]
             { None }
         },
-        schedule: crate::schedule::estimate(total_added, 0.0),
+        schedule: crate::schedule::estimate(total_added, halstead.as_ref().map_or(0.0, |h| h.effort)),
+        halstead,
         // ~4 tree-sitter tokens per added LOC (midpoint of 200–2000 tokens
         // per 50–500 LOC/day).
         leaf_tokens: total_added * 4,
     })
+}
+
+/// Sum per-language Halstead operator/operand counts and derive the derived
+/// metrics (volume, difficulty, effort, time, bugs).
+fn aggregate_halstead(
+    agg: &BTreeMap<String, crate::complexity::HalsteadMetrics>,
+) -> Option<crate::complexity::HalsteadMetrics> {
+    if agg.is_empty() { return None; }
+    let mut acc = crate::complexity::HalsteadMetrics::default();
+    for h in agg.values() {
+        acc.distinct_operators += h.distinct_operators;
+        acc.distinct_operands += h.distinct_operands;
+        acc.total_operators += h.total_operators;
+        acc.total_operands += h.total_operands;
+    }
+    let n1 = acc.distinct_operators; let n2 = acc.distinct_operands;
+    let t1 = acc.total_operators; let t2 = acc.total_operands;
+    let n_vocab = n1 + n2; let n_len = t1 + t2;
+    let volume = if n_vocab > 0 { (n_len as f64) * (n_vocab as f64).log2() } else { 0.0 };
+    let diff = if n1 > 0 { (n1 as f64 / 2.0) * (t2 as f64 / n2.max(1) as f64) } else { 0.0 };
+    acc.vocabulary = n_vocab; acc.length = n_len;
+    acc.estimated_length = if n1 > 0 && n2 > 0 {
+        n1 as f64 * (n1 as f64).log2() + n2 as f64 * (n2 as f64).log2()
+    } else { 0.0 };
+    acc.volume = volume; acc.difficulty = diff;
+    acc.effort = diff * volume;
+    acc.time_seconds = acc.effort / 18.0;
+    acc.bugs = volume / 3000.0;
+    Some(acc)
 }
 
 #[derive(Default)]
@@ -335,15 +375,28 @@ struct PerLang {
 /// commit's diff).
 fn flush(
     per_lang: &mut BTreeMap<String, PerLang>,
+    halstead_agg: &mut BTreeMap<String, crate::complexity::HalsteadMetrics>,
+    registry: &crate::language::LanguageRegistry,
     _llm: &mut TokenCounts,
     total_added: &mut u64,
     total_removed: &mut u64,
 ) {
-    for p in per_lang.values_mut() {
+    for (name, p) in per_lang.iter_mut() {
         *total_added += p.added_lines;
         *total_removed += p.removed_lines;
         p.total_added_lines += p.added_lines;
         p.total_removed_lines += p.removed_lines;
+        // Halstead: analyse the added/removed source with tree-sitter and
+        // sum operators/operands into the per-language aggregate.
+        if let Some(spec) = registry.find_by_name(name) {
+            let added = crate::complexity::analyze(&p.added_bytes, spec);
+            let removed = crate::complexity::analyze(&p.removed_bytes, spec);
+            let h = halstead_agg.entry(name.clone()).or_default();
+            h.distinct_operators += added.halstead.distinct_operators + removed.halstead.distinct_operators;
+            h.distinct_operands += added.halstead.distinct_operands + removed.halstead.distinct_operands;
+            h.total_operators += added.halstead.total_operators + removed.halstead.total_operators;
+            h.total_operands += added.halstead.total_operands + removed.halstead.total_operands;
+        }
         #[cfg(feature = "tokens")]
         {
             let a = crate::tokens::count_tokens(&p.added_bytes);

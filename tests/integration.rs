@@ -320,3 +320,108 @@ fn integration_json_parseable() {
     assert!(parsed["total_sloc"].is_u64());
     assert!(parsed["total_files"].is_u64());
 }
+
+// ---- Git-history consistency tests ---------------------------------------
+
+use std::process::Command;
+
+/// Initialise a git repo in `dir` (quietly, using a local identity).
+fn git_init(dir: &std::path::Path) {
+    Command::new("git").args(["init", "-q"]).current_dir(dir).output().unwrap();
+    Command::new("git")
+        .args(["config", "user.email", "test@example.com"])
+        .current_dir(dir).output().unwrap();
+    Command::new("git")
+        .args(["config", "user.name", "test"])
+        .current_dir(dir).output().unwrap();
+    Command::new("git").args(["add", "-A"]).current_dir(dir).output().unwrap();
+}
+
+fn git_commit(dir: &std::path::Path, msg: &str) {
+    Command::new("git")
+        .args(["commit", "-q", "-m", msg])
+        .current_dir(dir).output().unwrap();
+}
+
+/// Run history analysis and return the (report, formatted text).
+fn run_history(dir: &std::path::Path) -> (kloc::history::HistoryReport, String) {
+    let filter = default_filter();
+    let report = kloc::history::run_history(
+        &[dir.to_path_buf()], &filter, None, None,
+        &[kloc::history::AiPlan::Max20], None,
+    ).expect("history should run");
+    let text = kloc::output::format_history(&report, test_colors());
+    (report, text)
+}
+
+/// A single file added at creation (one commit). History metrics must match
+/// non-history metrics for the same file.
+#[test]
+fn integration_history_single_file_creation_matches_source() {
+    if Command::new("git").arg("--version").output().is_err() { return; }
+    let dir = test_dir("hist_single_creation");
+    write_file(&dir, "lib.rs", b"pub fn add(a: u32, b: u32) -> u32 {\n    a + b\n}\n\npub fn mul(a: u32, b: u32) -> u32 {\n    a * b\n}\n");
+    git_init(&dir);
+    git_commit(&dir, "add lib.rs");
+
+    // Non-history source metrics.
+    let (_, source_text) = {
+        let filter = default_filter();
+        let report = kloc::run(&[dir.clone()], &filter, &test_opts());
+        (report.clone(), kloc::output::format(&report, &kloc::output::OutputFormat::Text, true, test_colors()))
+    };
+
+    // History metrics.
+    let (hist, hist_text) = run_history(&dir);
+
+    assert_eq!(hist.commits, 1, "one commit");
+    // The schedule table must appear with a non-empty Halstead column.
+    assert!(hist_text.contains("Schedule (from diffs)"), "history must show schedule table");
+    assert!(hist_text.contains("Halstead"), "history must show Halstead column");
+    assert!(hist.halstead.is_some(), "history must compute Halstead");
+
+    // Parsed LOC in history must equal the source SLOC.
+    let hist_sloc = hist.total_added_lines;
+    let src_sloc: u64 = {
+        let filter = default_filter();
+        let r = kloc::run(&[dir.clone()], &filter, &test_opts());
+        r.total_sloc
+    };
+    assert_eq!(hist_sloc, src_sloc, "history added LOC must equal source SLOC");
+}
+
+/// A file built up by single-function additions across commits (no removals,
+/// no modifications). Both modes must report the same final metrics.
+#[test]
+fn integration_history_single_function_additions_match_source() {
+    if Command::new("git").arg("--version").output().is_err() { return; }
+    let dir = test_dir("hist_fn_additions");
+    write_file(&dir, "lib.rs", b"pub fn a() -> u32 {\n    1\n}\n");
+    git_init(&dir);
+    git_commit(&dir, "add fn a");
+
+    // Append a function per commit.
+    for (i, body) in ["2", "3", "4"].iter().enumerate() {
+        let fname = (b'a' + i as u8 + 1) as char;
+        let content = std::fs::read_to_string(dir.join("lib.rs")).unwrap();
+        let extra = format!("pub fn {fname}() -> u32 {{\n    {body}\n}}\n");
+        std::fs::write(dir.join("lib.rs"), content + &extra).unwrap();
+        Command::new("git").args(["add", "lib.rs"]).current_dir(&dir).output().unwrap();
+        git_commit(&dir, &format!("add fn {fname}"));
+    }
+
+    let src: kloc::Report = {
+        let filter = default_filter();
+        kloc::run(&[dir.clone()], &filter, &test_opts())
+    };
+    let (hist, _hist_text) = run_history(&dir);
+
+    assert_eq!(hist.commits, 4, "four commits total");
+    assert_eq!(hist.total_added_lines, src.total_sloc,
+        "history added LOC must equal final source SLOC (no removals)");
+    assert_eq!(hist.total_removed_lines, 0, "no removals");
+    assert!(hist.halstead.is_some(), "Halstead must be computed");
+
+    // History leaf-token estimate vs source tree-sitter leaf tokens.
+    assert!(src.nodes.leaf_tokens > 0);
+}

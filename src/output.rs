@@ -360,7 +360,7 @@ fn format_text(report: &Report, full: bool, colors: Colors) -> String {
     let ts_fg = 7u8;      // white (tree-sitter)
     let ai_fg = 6u8;      // cyan (AI)
     let hdr = format!(
-        "{:<12}{}{}{}{}\n",
+        "{:<12}{} {} {} {}\n",
         "Language",
         colors.ansi(&format!("{:>10}", "LOC"), loc_fg),
         colors.ansi(&format!("{:>8}", "Files"), files_fg),
@@ -386,7 +386,7 @@ fn format_text(report: &Report, full: bool, colors: Colors) -> String {
         let ai = format!("{:>12}", human_tokens(lang.ai_tokens));
         // Colour after padding so ANSI codes don't affect column alignment.
         out.push_str(&format!(
-            "{}{}{}{}{} ({:.2}%)\n",
+            "{}{} {} {} {} ({:.2}%)\n",
             name_field,
             colors.ansi(&sloc, loc_fg),
             colors.ansi(&files, files_fg),
@@ -519,8 +519,8 @@ pub fn format_history(report: &HistoryReport, colors: Colors) -> String {
 
     // Same grouped schedule table as the normal report, but estimated from
     // the diff-added lines and changed tokens rather than the full source.
-    let halstead_volume = None;
-    let halstead_time = None;
+    let halstead_volume = report.halstead.as_ref().map(|h| h.volume);
+    let halstead_time = report.halstead.as_ref().map(|h| h.time_seconds);
     let cols = build_schedule_cols(
         &report.schedule,
         report.llm_changed_tokens,
