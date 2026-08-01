@@ -15,6 +15,7 @@ pub mod cache;
 pub mod color;
 pub mod history;
 pub mod ai_config;
+pub mod log;
 
 #[cfg(feature = "tokens")]
 pub mod tokens;
@@ -140,6 +141,13 @@ pub fn run(paths: &[PathBuf], filter: &LanguageFilter, opts: &RunOptions) -> Rep
         .with_min_len(1)
         .filter(|entry| filter.matches(entry.language))
         .filter_map(|entry| {
+            // Debug-only per-file timing; zero overhead unless debug logging
+            // is enabled (-vv).
+            let dbg_start = if crate::log::level() == crate::log::LogLevel::Debug {
+                Some(Instant::now())
+            } else {
+                None
+            };
             let source = std::fs::read(&entry.path).ok()?;
             let size = source.len() as u64;
             let mtime_ns = std::fs::metadata(&entry.path).ok()
@@ -165,6 +173,15 @@ pub fn run(paths: &[PathBuf], filter: &LanguageFilter, opts: &RunOptions) -> Rep
                 #[cfg(not(feature = "tokens"))]
                 { TokenCounts::default() }
             };
+
+            if let Some(t0) = dbg_start {
+                crate::debug_log!(
+                    "{:.3} s  {:>10} B  {}",
+                    t0.elapsed().as_secs_f64(),
+                    size,
+                    entry.path.display()
+                );
+            }
 
             Some(FileResult {
                 name: entry.language.name.to_string(),
@@ -233,6 +250,11 @@ pub fn run(paths: &[PathBuf], filter: &LanguageFilter, opts: &RunOptions) -> Rep
     };
 
     let (cache_hits, cache_misses) = opts.cache.stats();
+
+    crate::info_log!(
+        "analyzed {} files, {} bytes in {:.3} s (cache: {} hits, {} misses)",
+        total_files, total_bytes, elapsed, cache_hits, cache_misses
+    );
 
     #[cfg(feature = "tokens")]
     let llm_tokens = Some(token_count);

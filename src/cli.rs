@@ -60,4 +60,8 @@ pub struct Args {
 
     #[arg(long, help = "Override the AI effort token multiplier for all platforms (e.g. 3-5 standard, 10-20 complex)")]
     pub ai_multiplier: Option<f64>,
+
+    #[arg(short = 'v', long, action = clap::ArgAction::Count,
+        help = "Verbose logging: -v shows info, -vv shows debug (default: errors and warnings only)")]
+    pub verbose: u8,
 }

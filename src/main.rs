@@ -1,8 +1,15 @@
 use clap::Parser;
-use kloc::{self, cli::Args, output::OutputFormat, LanguageFilter};
+use kloc::{self, cli::Args, log::LogLevel, output::OutputFormat, LanguageFilter};
 
 fn main() {
     let args = Args::parse();
+    // Debugging and performance diagnostics are hidden by default (threshold
+    // warning); -v lowers it to info, -vv to debug.
+    kloc::log::set_level(match args.verbose {
+        0 => LogLevel::Warning,
+        1 => LogLevel::Info,
+        _ => LogLevel::Debug,
+    });
     let paths: Vec<std::path::PathBuf> = if args.paths.is_empty() {
         vec![std::path::PathBuf::from(".")]
     } else {
@@ -17,7 +24,7 @@ fn main() {
             .unwrap_or_else(|| std::path::PathBuf::from("ai.toml"));
         match kloc::ai_config::write_default(&target) {
             Ok(()) => { println!("wrote {}", target.display()); }
-            Err(e) => { eprintln!("{e}"); std::process::exit(1); }
+            Err(e) => { kloc::error_log!("{e}"); std::process::exit(1); }
         }
         return;
     }
@@ -25,7 +32,7 @@ fn main() {
     // Load the AI config (XDG file if present, else embedded default).
     let ai_config = match kloc::ai_config::load(args.ai_config.as_deref()) {
         Ok(c) => c,
-        Err(e) => { eprintln!("{e}"); std::process::exit(1); }
+        Err(e) => { kloc::error_log!("{e}"); std::process::exit(1); }
     };
 
     if args.history {
@@ -34,7 +41,7 @@ fn main() {
             &ai_config, args.ai_multiplier)
         {
             Ok(r) => r,
-            Err(e) => { eprintln!("{e}"); std::process::exit(1); }
+            Err(e) => { kloc::error_log!("{e}"); std::process::exit(1); }
         };
         println!("{}", kloc::output::format_history(&report, color, &ai_config, args.ai_multiplier));
         return;
