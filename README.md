@@ -105,6 +105,13 @@ window) follows the widely reported figure (faros.ai, Dec 2025; Claude Code
 5-hour limits were doubled in May 2026). Override with `--ai-budget <tokens>`
 if you want a different allowance.
 
+## Testing
+
+`cargo test --all-features`. The git-history consistency tests generate
+random tree-sitter-parseable Rust code: each run uses a fresh seed (reported
+as `KLOK_TEST_SEED=…` in test output) and honours the `KLOK_TEST_SEED` env
+var to replay a specific seed deterministically. See `AGENTS.md`.
+
 ## Packaging status
 
 Debian, RPM, Podman, and Snap packages are not yet available — contributions welcome.

@@ -61,11 +61,12 @@ fn render_schedule_table(cols: &[MetricCol], colors: &Colors) -> String {
         widths.push(w);
     }
 
-    // Colour a cell: bright foreground over the column's group background,
-    // or just bright foreground when the group has no background.
+    // Colour a cell: bright foreground over the column's group background
+    // (a 256-colour grey shade), or just bright foreground when the group has
+    // no background.
     let paint = |cell: &str, fg: u8, bg: Option<u8>| -> String {
         match bg {
-            Some(b) => colors.on_bg(cell, fg, b),
+            Some(b) => colors.on_bg256(cell, fg, b),
             None => colors.ansi(cell, fg),
         }
     };
@@ -168,14 +169,14 @@ fn build_schedule_cols(
     let token_cols: Vec<MetricCol> = match llm_tokens {
         Some(t) => vec![
             MetricCol {
-                group: "AI", label: "Claude Max", color: 6, bg: Some(100),
+                group: "AI", label: "Claude Max", color: 6, bg: Some(236),
                 metric: if t.claude_sonnet > 0 { format!("{} tokens", human_tokens(t.claude_sonnet)) } else { "—".to_string() },
                 effort: if t.claude_sonnet > 0 { ai_dur(t.claude_sonnet) } else { "—".to_string() },
                 team: "—".to_string(),
                 schedule: if t.claude_sonnet > 0 { ai_dur(t.claude_sonnet) } else { "—".to_string() },
             },
             MetricCol {
-                group: "AI", label: "DeepSeek V4 (OpenCode)", color: 1, bg: Some(100),
+                group: "AI", label: "DeepSeek V4 (OpenCode)", color: 1, bg: Some(236),
                 metric: if t.deepseek_v4 > 0 { format!("{} tokens", human_tokens(t.deepseek_v4)) } else { "—".to_string() },
                 effort: if t.deepseek_v4 > 0 { ai_dur(t.deepseek_v4) } else { "—".to_string() },
                 team: "—".to_string(),
@@ -189,21 +190,21 @@ fn build_schedule_cols(
     // suffix); effort in person-months; team size where the model has one.
     let mut cols = vec![
         MetricCol {
-            group: "Kloc-driven", label: "COCOMO 1", color: 4, bg: Some(100),
+            group: "Kloc-driven", label: "COCOMO 1", color: 4, bg: Some(235),
             metric: format!("{:.1} k lines of code", s.ksloc),
             effort: human_person_months(s.cocomo.effort_person_months),
             team: format!("{:.1}", s.cocomo.avg_people),
             schedule: months(s.cocomo.schedule_months),
         },
         MetricCol {
-            group: "Kloc-driven", label: "COCOMO 2", color: 2, bg: Some(100),
+            group: "Kloc-driven", label: "COCOMO 2", color: 2, bg: Some(235),
             metric: format!("{:.1} k lines of code", s.ksloc),
             effort: human_person_months(s.cocomo_ii.effort_person_months),
             team: format!("{:.1}", s.cocomo_ii.avg_people),
             schedule: months(s.cocomo_ii.schedule_months),
         },
         MetricCol {
-            group: "Kloc-driven", label: "Putnam", color: 3, bg: Some(100),
+            group: "Kloc-driven", label: "Putnam", color: 3, bg: Some(235),
             metric: format!("{:.1} k lines of code", s.ksloc),
             effort: human_person_months(s.cocomo_ii.effort_person_months),
             team: format!("{:.1}", s.putnam.avg_people),

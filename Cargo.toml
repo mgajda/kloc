@@ -220,4 +220,5 @@ tree-sitter-asciidoc = { version = "0.9", optional = true }
 # tlaplus (pulls v0.19.5, Language type mismatch)
 
 [dev-dependencies]
+rand = "0.8"
 tempfile = "3"

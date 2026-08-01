@@ -322,8 +322,73 @@ fn integration_json_parseable() {
 }
 
 // ---- Git-history consistency tests ---------------------------------------
+//
+// These compare --history against source-tree metrics on randomly generated
+// tree-sitter-parseable Rust code. Per the seed SOP (see AGENTS.md), the RNG
+// is seeded from system entropy each run and the chosen seed is printed, so a
+// failure can be reproduced deterministically with KLOK_TEST_SEED=<seed>.
 
 use std::process::Command;
+use std::time::{SystemTime, UNIX_EPOCH};
+use rand::Rng;
+
+/// Seed the RNG: honour `KLOK_TEST_SEED` if set, else derive from wall-clock
+/// entropy. Prints the chosen seed so failures are reproducible.
+fn test_rng() -> (u64, rand::rngs::StdRng) {
+    let seed: u64 = match std::env::var("KLOK_TEST_SEED") {
+        Ok(s) => s.parse().expect("KLOK_TEST_SEED must be an integer"),
+        Err(_) => {
+            let nanos = SystemTime::now().duration_since(UNIX_EPOCH)
+                .expect("clock before epoch").as_nanos();
+            (nanos ^ (nanos >> 32)) as u64
+        }
+    };
+    println!("KLOK_TEST_SEED={seed}");
+    use rand::SeedableRng;
+    (seed, rand::rngs::StdRng::seed_from_u64(seed))
+}
+
+/// Generate a small tree-sitter-parseable Rust expression.
+fn gen_expr(rng: &mut impl rand::Rng, depth: u32) -> String {
+    if depth == 0 {
+        let int = rng.gen_range(0..1000u32);
+        return int.to_string();
+    }
+    let name = |i: u8| format!("v{i}");
+    match rng.gen_range(0..8) {
+        0 => rng.gen_range(0..1000u32).to_string(),
+        1 => format!("{} + {}", gen_expr(rng, depth - 1), gen_expr(rng, depth - 1)),
+        2 => format!("{} * {}", gen_expr(rng, depth - 1), gen_expr(rng, depth - 1)),
+        3 => format!("{} - {}", gen_expr(rng, depth - 1), gen_expr(rng, depth - 1)),
+        4 => name(rng.gen_range(0..5)),
+        5 => format!("{}.wrapping_add({})", name(rng.gen_range(0..5)), gen_expr(rng, depth - 1)),
+        6 => format!("if {} > 0 {{ {} }} else {{ {} }}",
+            gen_expr(rng, depth - 1), gen_expr(rng, depth - 1), gen_expr(rng, depth - 1)),
+        _ => format!("({})", gen_expr(rng, depth - 1)),
+    }
+}
+
+/// Generate one tree-sitter-parseable Rust function with random statements.
+fn gen_fn(rng: &mut impl rand::Rng, idx: usize) -> String {
+    let mut body = String::new();
+    let n = rng.gen_range(1..4);
+    for _ in 0..n {
+        match rng.gen_range(0..5) {
+            0 => body.push_str(&format!("    let v{} = {};\n", rng.gen_range(0..5), gen_expr(rng, 2))),
+            1 => body.push_str(&format!("    println!(\"{}\", {});\n", "x", gen_expr(rng, 2))),
+            2 => body.push_str(&format!("    if {} < 10 {{ {}; }}\n", gen_expr(rng, 1), gen_expr(rng, 1))),
+            3 => body.push_str(&format!("    for v{} in 0..{} {{ {}; }}\n",
+                rng.gen_range(0..5), rng.gen_range(1..20), gen_expr(rng, 1))),
+            _ => body.push_str(&format!("    let v{} = v{} + 1;\n", rng.gen_range(0..5), rng.gen_range(0..5))),
+        }
+    }
+    format!("pub fn f{idx}() -> u32 {{\n{body}    1\n}}\n")
+}
+
+/// Generate `n` parseable Rust functions joined together.
+fn gen_rust(rng: &mut impl rand::Rng, n: usize) -> String {
+    (0..n).map(|i| gen_fn(rng, i)).collect::<String>()
+}
 
 /// Initialise a git repo in `dir` (quietly, using a local identity).
 fn git_init(dir: &std::path::Path) {
@@ -354,74 +419,70 @@ fn run_history(dir: &std::path::Path) -> (kloc::history::HistoryReport, String) 
     (report, text)
 }
 
-/// A single file added at creation (one commit). History metrics must match
-/// non-history metrics for the same file.
+/// Run source-tree analysis and return the report.
+fn run_source(dir: &std::path::Path) -> kloc::Report {
+    let filter = default_filter();
+    kloc::run(&[dir.to_path_buf()], &filter, &test_opts())
+}
+
+/// A file added at creation in one commit. With randomly generated parseable
+/// code, history metrics must match the source-tree metrics for the same file.
 #[test]
 fn integration_history_single_file_creation_matches_source() {
     if Command::new("git").arg("--version").output().is_err() { return; }
+    let (seed, mut rng) = test_rng();
+    let n_fn = rng.gen_range(3..12);
+    let code = gen_rust(&mut rng, n_fn);
+
     let dir = test_dir("hist_single_creation");
-    write_file(&dir, "lib.rs", b"pub fn add(a: u32, b: u32) -> u32 {\n    a + b\n}\n\npub fn mul(a: u32, b: u32) -> u32 {\n    a * b\n}\n");
+    write_file(&dir, "lib.rs", code.as_bytes());
     git_init(&dir);
     git_commit(&dir, "add lib.rs");
 
-    // Non-history source metrics.
-    let (_, source_text) = {
-        let filter = default_filter();
-        let report = kloc::run(&[dir.clone()], &filter, &test_opts());
-        (report.clone(), kloc::output::format(&report, &kloc::output::OutputFormat::Text, true, test_colors()))
-    };
-
-    // History metrics.
+    let src = run_source(&dir);
     let (hist, hist_text) = run_history(&dir);
 
-    assert_eq!(hist.commits, 1, "one commit");
-    // The schedule table must appear with a non-empty Halstead column.
-    assert!(hist_text.contains("Schedule (from diffs)"), "history must show schedule table");
-    assert!(hist_text.contains("Halstead"), "history must show Halstead column");
-    assert!(hist.halstead.is_some(), "history must compute Halstead");
-
-    // Parsed LOC in history must equal the source SLOC.
-    let hist_sloc = hist.total_added_lines;
-    let src_sloc: u64 = {
-        let filter = default_filter();
-        let r = kloc::run(&[dir.clone()], &filter, &test_opts());
-        r.total_sloc
-    };
-    assert_eq!(hist_sloc, src_sloc, "history added LOC must equal source SLOC");
+    assert_eq!(hist.commits, 1, "one commit (seed={seed})");
+    assert!(hist_text.contains("Schedule (from diffs)"), "history must show schedule table (seed={seed})");
+    assert!(hist_text.contains("Halstead"), "history must show Halstead column (seed={seed})");
+    assert!(hist.halstead.is_some(), "history must compute Halstead (seed={seed})");
+    assert_eq!(hist.total_added_lines, src.total_sloc,
+        "history added LOC must equal source SLOC (seed={seed})");
+    assert_eq!(hist.total_removed_lines, 0, "no removals (seed={seed})");
 }
 
-/// A file built up by single-function additions across commits (no removals,
-/// no modifications). Both modes must report the same final metrics.
+/// A file built by adding one random function per commit (no removals, no
+/// modifications). History and source-tree modes must report the same final
+/// metrics.
 #[test]
 fn integration_history_single_function_additions_match_source() {
     if Command::new("git").arg("--version").output().is_err() { return; }
-    let dir = test_dir("hist_fn_additions");
-    write_file(&dir, "lib.rs", b"pub fn a() -> u32 {\n    1\n}\n");
-    git_init(&dir);
-    git_commit(&dir, "add fn a");
+    let (seed, mut rng) = test_rng();
+    let n_fns = rng.gen_range(3..8);
 
-    // Append a function per commit.
-    for (i, body) in ["2", "3", "4"].iter().enumerate() {
-        let fname = (b'a' + i as u8 + 1) as char;
+    let dir = test_dir("hist_fn_additions");
+    // Commit 1: first function.
+    write_file(&dir, "lib.rs", gen_fn(&mut rng, 0).as_bytes());
+    git_init(&dir);
+    git_commit(&dir, "add fn f0");
+
+    // Append one function per commit.
+    for i in 1..n_fns {
         let content = std::fs::read_to_string(dir.join("lib.rs")).unwrap();
-        let extra = format!("pub fn {fname}() -> u32 {{\n    {body}\n}}\n");
+        let extra = gen_fn(&mut rng, i as usize);
         std::fs::write(dir.join("lib.rs"), content + &extra).unwrap();
         Command::new("git").args(["add", "lib.rs"]).current_dir(&dir).output().unwrap();
-        git_commit(&dir, &format!("add fn {fname}"));
+        git_commit(&dir, &format!("add fn f{i}"));
     }
 
-    let src: kloc::Report = {
-        let filter = default_filter();
-        kloc::run(&[dir.clone()], &filter, &test_opts())
-    };
+    let src = run_source(&dir);
     let (hist, _hist_text) = run_history(&dir);
 
-    assert_eq!(hist.commits, 4, "four commits total");
+    assert_eq!(hist.commits, n_fns, "one commit per function (seed={seed})");
     assert_eq!(hist.total_added_lines, src.total_sloc,
-        "history added LOC must equal final source SLOC (no removals)");
-    assert_eq!(hist.total_removed_lines, 0, "no removals");
-    assert!(hist.halstead.is_some(), "Halstead must be computed");
-
-    // History leaf-token estimate vs source tree-sitter leaf tokens.
-    assert!(src.nodes.leaf_tokens > 0);
+        "history added LOC must equal final source SLOC, no removals (seed={seed})");
+    assert_eq!(hist.total_removed_lines, 0, "no removals (seed={seed})");
+    assert!(hist.halstead.is_some(), "Halstead must be computed (seed={seed})");
+    assert!(src.nodes.leaf_tokens > 0, "source must have leaf tokens (seed={seed})");
 }
+

@@ -118,6 +118,13 @@ impl Colors {
         let f = 90 + fg.min(7);
         self.wrap(s, &format!("{f};{bg_code}"))
     }
+
+    /// Bright foreground over a 256-colour background (`48;5;N`). Use the
+    /// xterm greyscale ramp (232..255) for dark shades: lower = darker.
+    pub fn on_bg256(&self, s: &str, fg: u8, bg256: u8) -> String {
+        let f = 90 + fg.min(7);
+        self.wrap(s, &format!("{f};48;5;{bg256}"))
+    }
 }
 
 /// A language's colours: the foreground is the GitHub colour, and `bg` is a
