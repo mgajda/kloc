@@ -54,7 +54,7 @@ impl Report {
         let total_comments = by_language.iter().map(|l| l.comments).sum();
         let total_files = by_language.iter().map(|l| l.files).sum();
 
-        let halstead = aggregate_halstead(&cx_halstead);
+        let halstead = complexity::aggregate_halstead(cx_halstead.values());
         let mccabe = aggregate_mccabe(&cx_mccabe);
 
         let schedule = halstead.as_ref().map(|h| {
@@ -73,33 +73,6 @@ impl Report {
             cache_hits, cache_misses,
         }
     }
-}
-
-fn aggregate_halstead(
-    cx_halstead: &BTreeMap<String, complexity::HalsteadMetrics>,
-) -> Option<complexity::HalsteadMetrics> {
-    if cx_halstead.is_empty() { return None; }
-    let mut acc = complexity::HalsteadMetrics::default();
-    for h in cx_halstead.values() {
-        acc.distinct_operators += h.distinct_operators;
-        acc.distinct_operands += h.distinct_operands;
-        acc.total_operators += h.total_operators;
-        acc.total_operands += h.total_operands;
-    }
-    let n1 = acc.distinct_operators; let n2 = acc.distinct_operands;
-    let t1 = acc.total_operators; let t2 = acc.total_operands;
-    let n_vocab = n1 + n2; let n_len = t1 + t2;
-    let volume = if n_vocab > 0 { (n_len as f64) * (n_vocab as f64).log2() } else { 0.0 };
-    let diff = if n1 > 0 { (n1 as f64 / 2.0) * (t2 as f64 / n2.max(1) as f64) } else { 0.0 };
-    acc.vocabulary = n_vocab; acc.length = n_len;
-    acc.estimated_length = if n1 > 0 && n2 > 0 {
-        n1 as f64 * (n1 as f64).log2() + n2 as f64 * (n2 as f64).log2()
-    } else { 0.0 };
-    acc.volume = volume; acc.difficulty = diff;
-    acc.effort = diff * volume;
-    acc.time_seconds = acc.effort / 18.0;
-    acc.bugs = volume / 3000.0;
-    Some(acc)
 }
 
 fn aggregate_mccabe(

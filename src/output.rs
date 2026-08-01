@@ -1,5 +1,5 @@
 use crate::color::{Colors, logo_colors};
-use crate::history::{HistoryReport, ai_time_seconds};
+use crate::history::HistoryReport;
 use crate::report::Report;
 
 pub enum OutputFormat {
@@ -165,7 +165,7 @@ fn build_schedule_cols(
     // (5h window / day / week / month), not by a linear time rate — this is
     // why Claude/DeepSeek durations differ from the human tree-sitter days.
     let caps = crate::history::AiCaps::from_plan(crate::history::AiPlan::Max20);
-    let ai_dur = |n: u64| crate::history::ai_duration(ai_time_seconds(n), caps);
+    let ai_dur = |n: u64| crate::history::ai_duration(n, caps);
     let token_cols: Vec<MetricCol> = match llm_tokens {
         Some(t) => vec![
             MetricCol {
@@ -190,35 +190,35 @@ fn build_schedule_cols(
     // suffix); effort in person-months; team size where the model has one.
     let mut cols = vec![
         MetricCol {
-            group: "Kloc-driven", label: "COCOMO 1", color: 4, bg: Some(235),
+            group: "LoC-driven", label: "COCOMO 1", color: 4, bg: Some(235),
             metric: format!("{:.1} k lines of code", s.ksloc),
             effort: human_person_months(s.cocomo.effort_person_months),
             team: format!("{:.1}", s.cocomo.avg_people),
             schedule: months(s.cocomo.schedule_months),
         },
         MetricCol {
-            group: "Kloc-driven", label: "COCOMO 2", color: 2, bg: Some(235),
+            group: "LoC-driven", label: "COCOMO 2", color: 2, bg: Some(235),
             metric: format!("{:.1} k lines of code", s.ksloc),
             effort: human_person_months(s.cocomo_ii.effort_person_months),
             team: format!("{:.1}", s.cocomo_ii.avg_people),
             schedule: months(s.cocomo_ii.schedule_months),
         },
         MetricCol {
-            group: "Kloc-driven", label: "Putnam", color: 3, bg: Some(235),
+            group: "LoC-driven", label: "Putnam", color: 3, bg: Some(235),
             metric: format!("{:.1} k lines of code", s.ksloc),
             effort: human_person_months(s.cocomo_ii.effort_person_months),
             team: format!("{:.1}", s.putnam.avg_people),
             schedule: months(s.putnam.schedule_months),
         },
         MetricCol {
-            group: "AST", label: "Tree-sitter", color: 7, bg: None,
+            group: "AST-driven", label: "Tree-sitter", color: 7, bg: None,
             metric: human_metric,
             effort: human_duration_str.clone(),
             team: "—".to_string(),
             schedule: human_duration_str,
         },
         MetricCol {
-            group: "AST", label: "Halstead", color: 5, bg: None,
+            group: "AST-driven", label: "Halstead", color: 5, bg: None,
             metric: match halstead_volume {
                 Some(v) => format!("{} volume", human_tokens(v as u64)),
                 None => "—".to_string(),
@@ -355,8 +355,8 @@ fn format_text(report: &Report, full: bool, colors: Colors) -> String {
     let mut out = String::new();
     out.push_str("SLOC by language:\n\n");
     // Column headers, coloured to match the schedule-table metrics
-    // (Kloc-driven = blue, files = yellow, tree-sitter = white, AI = cyan).
-    let loc_fg = 4u8;     // blue (Kloc-driven LOC)
+    // (LoC-driven = blue, files = yellow, tree-sitter = white, AI = cyan).
+    let loc_fg = 4u8;     // blue (LoC-driven LOC)
     let files_fg = 3u8;   // yellow
     let ts_fg = 7u8;      // white (tree-sitter)
     let ai_fg = 6u8;      // cyan (AI)
@@ -536,13 +536,13 @@ pub fn format_history(report: &HistoryReport, colors: Colors) -> String {
         out.push_str("\n--- AI time to process ---\n\n");
         for e in &report.ai_estimates {
             out.push_str(&format!(
-                "{:44}= {} ({} / 5-hour window)\n",
-                e.plan, human_duration(e.elapsed_seconds), human_tokens(e.tokens_per_5h)
+                "{:44}= {} 5-hour windows ({} / window)\n",
+                e.plan, e.windows_5h, human_tokens(e.tokens_per_5h)
             ));
             out.push_str(&format!(
-                "  {:44}= {} changed tokens; {} 5-hour windows\n",
+                "  {:44}= {} changed tokens ({} total)\n",
                 "",
-                human_tokens(e.changed_tokens), e.windows_5h
+                human_tokens(e.changed_tokens), human_duration(e.elapsed_seconds)
             ));
         }
         out.push_str("\nCalibration is approximate (Anthropic publishes plan multiples,\n");
@@ -682,15 +682,15 @@ mod tests {
         // Two groups; the group header must appear, and the "Method" row must
         // list every column label in order.
         let cols = vec![
-            col("Kloc-driven", "COCOMO 1", "1 x", "2", "3", "4 months"),
-            col("Kloc-driven", "COCOMO 2", "1 x", "2", "3", "4 months"),
+            col("LoC-driven", "COCOMO 1", "1 x", "2", "3", "4 months"),
+            col("LoC-driven", "COCOMO 2", "1 x", "2", "3", "4 months"),
             col("Halstead", "Halstead", "1 x", "2", "—", "4 months"),
             col("AI", "Claude Max", "1 x", "2", "—", "4 months"),
             col("AI", "DeepSeek V4 (OpenCode)", "1 x", "2", "—", "4 months"),
         ];
         let out = render_schedule_table(&cols, &Colors::force(false));
         let plain = csi_strip(&out);
-        for label in ["Kloc-driven", "Halstead", "AI"] {
+        for label in ["LoC-driven", "Halstead", "AI"] {
             assert!(plain.contains(label), "missing group header {label:?}:\n{plain}");
         }
         // Column labels in order.

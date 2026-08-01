@@ -307,6 +307,8 @@ impl LanguageRegistry {
         }))
     }
 
+    /// Detect a language by extension, falling back to a provided first line
+    /// (shebang) when the extension is unrecognised.
     pub fn detect(&self, path: &Path, first_line: Option<&[u8]>) -> Option<&LanguageSpec> {
         if let Some(spec) = self.detect_by_ext(path) {
             return Some(spec);

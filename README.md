@@ -50,12 +50,22 @@ kloc --full             # show detailed Halstead/McCabe metrics
 kloc --sloc-only        # skip complexity analysis (faster)
 kloc --no-cache         # disable the on-disk result cache
 kloc --color always     # force colors (auto/always/never; default auto)
+kloc --ignore build     # also ignore a directory named 'build'
+kloc --no-ignore node_modules  # stop ignoring node_modules (a default)
+kloc --no-ignore-defaults     # ignore nothing by default
 kloc --history          # analyze git history (changed tokens, AI time to process)
 kloc --history --from v1.0          # range: from v1.0.. (to branch tip)
 kloc --history --from v1.0 --to v2.0  # range: v1.0..v2.0
 kloc --history --ai-plan pro   # calibrate AI estimate on Claude Pro (or max5, max20)
 kloc --history --ai-budget 50000  # override the 5-hour token budget
 ```
+
+By default the walker skips dependency / build-cache directories:
+`node_modules`, `.git`, `.vscode`, `.opencode`, `.claude`, `.cache`,
+`__pycache__`, `dist`, `dist-newstyle`, `.stack`, `.cabal`, `target`.
+Add or remove patterns with `--ignore` / `--no-ignore`, or disable the whole
+set with `--no-ignore-defaults`. Patterns match a directory name (not a path),
+so `--ignore dist` skips any `dist/` at any depth.
 
 The schedule/effort block is a grouped table: rows are Metric / Effort / Team
 size / Schedule; columns are the estimation methodologies, grouped into

@@ -118,30 +118,58 @@ pub fn ai_time_seconds_with_caps(tokens: u64, caps: AiCaps) -> f64 {
     }
 }
 
-/// Human-readable AI duration from an elapsed-seconds value, choosing the
-/// unit by the largest cap it spans (windows→days→weeks→months) rather than
-/// by wall-clock thresholds.
-pub fn ai_duration(seconds: f64, caps: AiCaps) -> String {
-    if seconds < 0.0 || !seconds.is_finite() { return "0 s".to_string(); }
-    let window_secs = 5.0 * 3600.0;
-    let day_secs = 24.0 * 3600.0;
-    let week_secs = 7.0 * day_secs;
-    let month_secs = 30.44 * day_secs;
-    let (value, unit) = if caps.monthly > 0 && seconds >= month_secs * 1.0 {
-        (seconds / month_secs, "months")
-    } else if caps.weekly > 0 && seconds >= week_secs {
-        (seconds / week_secs, "weeks")
-    } else if caps.daily > 0 && seconds >= day_secs {
-        (seconds / day_secs, "days")
-    } else if caps.window_5h > 0 && seconds >= window_secs {
-        (seconds / window_secs, "5h windows")
+/// Human-readable AI duration from an effective token load, decomposed into
+/// whole plan-cap units — months (monthly cap), days (daily cap), 5-hour
+/// windows (window cap) — plus the remaining minutes/seconds.
+///
+/// The caps are integral counts of tokens per period, so the decomposition is
+/// integral too: we subtract as many whole months as the monthly cap allows,
+/// then whole days, then whole 5-hour windows, and report the leftover in
+/// minutes/seconds. Never a fractional "1.5 days" — that would imply a
+/// partial window the caps cannot grant.
+pub fn ai_duration(tokens: u64, caps: AiCaps) -> String {
+    let mut effective = effective_tokens(tokens);
+    let mut parts: Vec<String> = Vec::new();
+
+    if caps.monthly > 0 {
+        let months = effective / caps.monthly;
+        if months > 0 {
+            parts.push(format!("{months} month{}", if months == 1 { "" } else { "s" }));
+            effective %= caps.monthly;
+        }
+    }
+    if caps.daily > 0 {
+        let days = effective / caps.daily;
+        if days > 0 {
+            parts.push(format!("{days} day{}", if days == 1 { "" } else { "s" }));
+            effective %= caps.daily;
+        }
+    }
+    if caps.window_5h > 0 {
+        let windows = effective / caps.window_5h;
+        if windows > 0 {
+            parts.push(format!("{windows} 5h window{}", if windows == 1 { "" } else { "s" }));
+            effective %= caps.window_5h;
+        }
+    }
+
+    // Remaining tokens under one 5h window: estimate as minutes/seconds
+    // assuming a constant rate across the window (window = 5h).
+    if effective > 0 && caps.window_5h > 0 {
+        let window_secs = 5.0 * 3600.0;
+        let rate = window_secs / caps.window_5h as f64; // seconds per token
+        let secs = (effective as f64 * rate).round() as u64;
+        if secs >= 60 {
+            parts.push(format!("{} min", secs / 60));
+        } else if secs > 0 {
+            parts.push(format!("{secs} s"));
+        }
+    }
+
+    if parts.is_empty() {
+        "0 s".to_string()
     } else {
-        (seconds, "seconds")
-    };
-    if unit == "seconds" {
-        format!("{value:.0} s")
-    } else {
-        format!("{value:.1} {unit}")
+        parts.join(", ")
     }
 }
 
@@ -332,28 +360,7 @@ pub fn run_history(
 fn aggregate_halstead(
     agg: &BTreeMap<String, crate::complexity::HalsteadMetrics>,
 ) -> Option<crate::complexity::HalsteadMetrics> {
-    if agg.is_empty() { return None; }
-    let mut acc = crate::complexity::HalsteadMetrics::default();
-    for h in agg.values() {
-        acc.distinct_operators += h.distinct_operators;
-        acc.distinct_operands += h.distinct_operands;
-        acc.total_operators += h.total_operators;
-        acc.total_operands += h.total_operands;
-    }
-    let n1 = acc.distinct_operators; let n2 = acc.distinct_operands;
-    let t1 = acc.total_operators; let t2 = acc.total_operands;
-    let n_vocab = n1 + n2; let n_len = t1 + t2;
-    let volume = if n_vocab > 0 { (n_len as f64) * (n_vocab as f64).log2() } else { 0.0 };
-    let diff = if n1 > 0 { (n1 as f64 / 2.0) * (t2 as f64 / n2.max(1) as f64) } else { 0.0 };
-    acc.vocabulary = n_vocab; acc.length = n_len;
-    acc.estimated_length = if n1 > 0 && n2 > 0 {
-        n1 as f64 * (n1 as f64).log2() + n2 as f64 * (n2 as f64).log2()
-    } else { 0.0 };
-    acc.volume = volume; acc.difficulty = diff;
-    acc.effort = diff * volume;
-    acc.time_seconds = acc.effort / 18.0;
-    acc.bugs = volume / 3000.0;
-    Some(acc)
+    crate::complexity::aggregate_halstead(agg.values())
 }
 
 #[derive(Default)]
@@ -512,12 +519,17 @@ mod tests {
     #[test]
     fn test_ai_duration_units() {
         let caps = AiCaps::from_plan(AiPlan::Max20);
-        // 2 windows → "2.0 5h windows"
-        assert_eq!(ai_duration(2.0 * 5.0 * 3600.0, caps), "2.0 5h windows");
-        // a bit over a day → days
-        assert_eq!(ai_duration(1.5 * 24.0 * 3600.0, caps), "1.5 days");
-        // over a week → weeks
-        assert_eq!(ai_duration(2.0 * 7.0 * 24.0 * 3600.0, caps), "2.0 weeks");
+        // ai_duration takes output tokens; effective = tokens × 6.
+        // 2 windows: effective 440000 → output 73334.
+        assert_eq!(ai_duration(73_334, caps), "2 5h windows");
+        // 1 day: effective 880000 → output 146667.
+        assert_eq!(ai_duration(146_667, caps), "1 day");
+        // 1 day + 2 windows: effective 1320000 → output 220000.
+        assert_eq!(ai_duration(220_000, caps), "1 day, 2 5h windows");
+        // 2 months: effective 38280000 → output 6380000.
+        assert_eq!(ai_duration(6_380_000, caps), "2 months");
+        // Zero output → "0 s".
+        assert_eq!(ai_duration(0, caps), "0 s");
     }
 
     #[test]

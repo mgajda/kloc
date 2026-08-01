@@ -51,13 +51,6 @@ pub struct Colors {
 }
 
 impl Colors {
-    pub fn detect() -> Self {
-        let no_color = std::env::var_os("NO_COLOR").is_some_and(|v| !v.is_empty());
-        let dumb = std::env::var("TERM").is_ok_and(|t| t == "dumb");
-        let enabled = std::io::stdout().is_terminal() && !no_color && !dumb;
-        Colors { enabled }
-    }
-
     pub fn from_mode(mode: ColorMode) -> Self {
         let enabled = match mode {
             ColorMode::Always => true,
@@ -104,19 +97,6 @@ impl Colors {
     pub fn ansi(&self, s: &str, n: u8) -> String {
         let code = 90 + n.min(7);
         self.wrap(s, &format!("{code}"))
-    }
-
-    /// Explicit SGR background colour code (e.g. 40=black, 100=dark gray).
-    /// Only dark backgrounds are used — light backgrounds are never emitted.
-    pub fn bg_code(&self, s: &str, code: u8) -> String {
-        self.wrap(s, &format!("{code}"))
-    }
-
-    /// Bright foreground (1=red..7=white) over a dark SGR background code.
-    /// e.g. `on_bg(s, 4, 100)` = bright blue text on dark gray.
-    pub fn on_bg(&self, s: &str, fg: u8, bg_code: u8) -> String {
-        let f = 90 + fg.min(7);
-        self.wrap(s, &format!("{f};{bg_code}"))
     }
 
     /// Bright foreground over a 256-colour background (`48;5;N`). Use the

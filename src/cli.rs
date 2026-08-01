@@ -32,6 +32,15 @@ pub struct Args {
     #[arg(long, help = "Disable on-disk result caching")]
     pub no_cache: bool,
 
+    #[arg(long, value_delimiter = ',', help = "Also ignore these directory names (in addition to defaults)")]
+    pub ignore: Vec<String>,
+
+    #[arg(long, value_delimiter = ',', help = "Stop ignoring these directory names (remove from defaults)")]
+    pub no_ignore: Vec<String>,
+
+    #[arg(long, help = "Disable the default-ignored directory list entirely")]
+    pub no_ignore_defaults: bool,
+
     #[arg(long, value_enum, default_value_t = ColorMode::Auto, help = "When to use colors in output (auto, always, never)")]
     pub color: ColorMode,
 

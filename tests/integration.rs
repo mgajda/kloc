@@ -35,6 +35,7 @@ fn test_opts() -> kloc::RunOptions {
     kloc::RunOptions {
         sloc_only: false,
         cache: kloc::cache::Cache::new(false),
+        ignore: kloc::walker::DirIgnore::new(false),
     }
 }
 
@@ -304,8 +305,7 @@ fn integration_filter_only_programming_and_only() {
 }
 
 #[test]
-fn integration_json_parseable() {
-    let dir = test_dir("json_parse");
+fn integration_json_parseable() {    let dir = test_dir("json_parse");
     write_file(&dir, "main.rs", b"fn main() {}\n");
 
     let json_str = {
@@ -319,6 +319,58 @@ fn integration_json_parseable() {
     assert!(parsed["by_language"].is_array());
     assert!(parsed["total_sloc"].is_u64());
     assert!(parsed["total_files"].is_u64());
+}
+
+// ---- Directory-ignore tests ----------------------------------------------
+
+#[test]
+fn integration_ignore_default_dirs() {
+    let dir = test_dir("ignore_defaults");
+    // Some ignored dirs and one real file.
+    for sub in ["node_modules", ".git", "dist", "__pycache__", "src"] {
+        fs::create_dir_all(dir.join(sub)).unwrap();
+    }
+    write_file(&dir, "src/main.rs", b"fn main() {}\n");
+    write_file(&dir, "node_modules/lib.rs", b"fn node() {}\n");
+    write_file(&dir, ".git/x.rs", b"fn git() {}\n");
+    write_file(&dir, "dist/y.rs", b"fn dist() {}\n");
+
+    let filter = default_filter();
+    let mut opts = test_opts();
+    opts.ignore = kloc::walker::DirIgnore::new(true);
+    let report = kloc::run(&[dir.clone()], &filter, &opts);
+    // Only src/main.rs is counted (default ignores exclude the others).
+    assert_eq!(report.total_files, 1, "only src/main.rs counted");
+    assert_eq!(report.total_sloc, 1);
+}
+
+#[test]
+fn integration_ignore_custom_and_no_ignore() {
+    let dir = test_dir("ignore_custom");
+    fs::create_dir_all(dir.join("src")).unwrap();
+    fs::create_dir_all(dir.join("gen")).unwrap();
+    write_file(&dir, "src/main.rs", b"fn main() {}\n");
+    write_file(&dir, "gen/gen.rs", b"fn gen() {}\n");
+
+    let filter = default_filter();
+
+    // Defaults on: "src" is not a default-ignored dir, so both are counted
+    // unless we add "gen".
+    let mut opts = test_opts();
+    opts.ignore = kloc::walker::DirIgnore::new(true);
+    let report = kloc::run(&[dir.clone()], &filter, &opts);
+    assert_eq!(report.total_files, 2, "defaults don't ignore src or gen");
+
+    // Add "gen" to ignores → only src counted.
+    opts.ignore.add("gen");
+    let report = kloc::run(&[dir.clone()], &filter, &opts);
+    assert_eq!(report.total_files, 1, "gen ignored after add");
+
+    // Remove "node_modules" (a default) and disable defaults for gen check.
+    let mut opts = test_opts();
+    opts.ignore = kloc::walker::DirIgnore::new(false);
+    let report = kloc::run(&[dir.clone()], &filter, &opts);
+    assert_eq!(report.total_files, 2, "no defaults, both counted");
 }
 
 // ---- Git-history consistency tests ---------------------------------------

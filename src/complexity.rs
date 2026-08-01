@@ -17,6 +17,34 @@ pub struct HalsteadMetrics {
     pub bugs: f64,
 }
 
+impl HalsteadMetrics {
+    /// Add another metrics' raw counts (operators/operands) into this one.
+    pub fn accumulate(&mut self, other: &HalsteadMetrics) {
+        self.distinct_operators += other.distinct_operators;
+        self.distinct_operands += other.distinct_operands;
+        self.total_operators += other.total_operators;
+        self.total_operands += other.total_operands;
+    }
+
+    /// Recompute the derived metrics (volume, difficulty, effort, time, bugs)
+    /// from the raw operator/operand counts. Call after accumulation.
+    pub fn derive(&mut self) {
+        let n1 = self.distinct_operators; let n2 = self.distinct_operands;
+        let t1 = self.total_operators; let t2 = self.total_operands;
+        let n_vocab = n1 + n2; let n_len = t1 + t2;
+        let volume = if n_vocab > 0 { (n_len as f64) * (n_vocab as f64).log2() } else { 0.0 };
+        let diff = if n1 > 0 { (n1 as f64 / 2.0) * (t2 as f64 / n2.max(1) as f64) } else { 0.0 };
+        self.vocabulary = n_vocab; self.length = n_len;
+        self.estimated_length = if n1 > 0 && n2 > 0 {
+            n1 as f64 * (n1 as f64).log2() + n2 as f64 * (n2 as f64).log2()
+        } else { 0.0 };
+        self.volume = volume; self.difficulty = diff;
+        self.effort = diff * volume;
+        self.time_seconds = self.effort / 18.0;
+        self.bugs = volume / 3000.0;
+    }
+}
+
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct McCabeMetrics {
     pub function_count: u64,
@@ -24,7 +52,7 @@ pub struct McCabeMetrics {
     pub average_cyclomatic: f64,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct HenryKafuraMetrics {
     pub total_modules: u64,
     pub total_fan_in: u64,
@@ -214,29 +242,14 @@ pub fn analyze(source: &[u8], spec: &LanguageSpec) -> ComplexityResult {
     let decisions = ws.decisions;
     let functions = ws.functions;
 
-    let n1 = op_counts.len() as u64;
-    let n2 = opd_counts.len() as u64;
-    let t1: u64 = op_counts.values().sum();
-    let t2: u64 = opd_counts.values().sum();
-
-    let n_vocab = n1 + n2;
-    let n_len = t1 + t2;
-    let estimated_length = if n1 > 0 && n2 > 0 {
-        n1 as f64 * (n1 as f64).log2() + n2 as f64 * (n2 as f64).log2()
-    } else { 0.0 };
-    let volume = if n_vocab > 0 { (n_len as f64) * (n_vocab as f64).log2() } else { 0.0 };
-    let n2_denom = n2.max(1);
-    let difficulty = if n1 > 0 { (n1 as f64 / 2.0) * (t2 as f64 / n2_denom as f64) } else { 0.0 };
-    let effort = difficulty * volume;
-    let time_seconds = effort / 18.0;
-    let bugs = volume / 3000.0;
-
-    let halstead = HalsteadMetrics {
-        distinct_operators: n1, distinct_operands: n2,
-        total_operators: t1, total_operands: t2,
-        vocabulary: n_vocab, length: n_len, estimated_length,
-        volume, difficulty, effort, time_seconds, bugs,
+    let mut halstead = HalsteadMetrics {
+        distinct_operators: op_counts.len() as u64,
+        distinct_operands: opd_counts.len() as u64,
+        total_operators: op_counts.values().sum(),
+        total_operands: opd_counts.values().sum(),
+        ..Default::default()
     };
+    halstead.derive();
 
     let total_cyclomatic = decisions + functions;
     let avg_cyclomatic = if functions > 0 { total_cyclomatic as f64 / functions as f64 } else { 0.0 };
@@ -249,14 +262,25 @@ pub fn analyze(source: &[u8], spec: &LanguageSpec) -> ComplexityResult {
 
 fn empty_result() -> ComplexityResult {
     ComplexityResult {
-        halstead: HalsteadMetrics {
-            distinct_operators: 0, distinct_operands: 0,
-            total_operators: 0, total_operands: 0,
-            vocabulary: 0, length: 0, estimated_length: 0.0,
-            volume: 0.0, difficulty: 0.0, effort: 0.0,
-            time_seconds: 0.0, bugs: 0.0,
-        },
-        mccabe: McCabeMetrics { function_count: 0, total_cyclomatic: 0, average_cyclomatic: 0.0 },
-        henry_kafura: HenryKafuraMetrics { total_modules: 0, total_fan_in: 0, total_fan_out: 0, total_information_flow: 0.0 },
+        halstead: HalsteadMetrics::default(),
+        mccabe: McCabeMetrics::default(),
+        henry_kafura: HenryKafuraMetrics::default(),
     }
+}
+
+/// Aggregate per-language Halstead metrics into one: sum the raw
+/// operator/operand counts, then derive volume/effort/time. `None` when the
+/// input is empty.
+pub fn aggregate_halstead<'a>(
+    metrics: impl IntoIterator<Item = &'a HalsteadMetrics>,
+) -> Option<HalsteadMetrics> {
+    let mut acc = HalsteadMetrics::default();
+    let mut any = false;
+    for h in metrics {
+        acc.accumulate(h);
+        any = true;
+    }
+    if !any { return None; }
+    acc.derive();
+    Some(acc)
 }

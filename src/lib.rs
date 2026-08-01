@@ -80,13 +80,22 @@ impl From<&cli::Args> for LanguageFilter {
 pub struct RunOptions {
     pub sloc_only: bool,
     pub cache: cache::Cache,
+    pub ignore: walker::DirIgnore,
 }
 
 impl RunOptions {
     pub fn from_args(args: &cli::Args) -> Self {
+        let mut ignore = walker::DirIgnore::new(!args.no_ignore_defaults);
+        for name in &args.ignore {
+            ignore.add(name);
+        }
+        for name in &args.no_ignore {
+            ignore.remove(name);
+        }
         RunOptions {
             sloc_only: args.sloc_only,
             cache: cache::Cache::new(!args.no_cache),
+            ignore,
         }
     }
 }
@@ -122,7 +131,7 @@ struct FileResult {
 pub fn run(paths: &[PathBuf], filter: &LanguageFilter, opts: &RunOptions) -> Report {
     let start = Instant::now();
     let registry = language::registry();
-    let entries = walker::walk_files(paths, registry);
+    let entries = walker::walk_files(paths, registry, &opts.ignore);
     let want_complexity = !opts.sloc_only;
 
     let results: Vec<FileResult> = entries
@@ -207,7 +216,7 @@ pub fn run(paths: &[PathBuf], filter: &LanguageFilter, opts: &RunOptions) -> Rep
     }
 
     for h in halstead_agg.values_mut() {
-        derive_halstead(h);
+        h.derive();
     }
 
     let total_files: u64 = counts.values().map(|c| c.1).sum();
@@ -234,18 +243,3 @@ pub fn run(paths: &[PathBuf], filter: &LanguageFilter, opts: &RunOptions) -> Rep
     )
 }
 
-fn derive_halstead(h: &mut complexity::HalsteadMetrics) {
-    let n1 = h.distinct_operators; let n2 = h.distinct_operands;
-    let t1 = h.total_operators; let t2 = h.total_operands;
-    let n_vocab = n1 + n2; let n_len = t1 + t2;
-    let volume = if n_vocab > 0 { (n_len as f64) * (n_vocab as f64).log2() } else { 0.0 };
-    let diff = if n1 > 0 { (n1 as f64 / 2.0) * (t2 as f64 / n2.max(1) as f64) } else { 0.0 };
-    h.vocabulary = n_vocab; h.length = n_len;
-    h.estimated_length = if n1 > 0 && n2 > 0 {
-        n1 as f64 * (n1 as f64).log2() + n2 as f64 * (n2 as f64).log2()
-    } else { 0.0 };
-    h.volume = volume; h.difficulty = diff;
-    h.effort = diff * volume;
-    h.time_seconds = h.effort / 18.0;
-    h.bugs = volume / 3000.0;
-}
