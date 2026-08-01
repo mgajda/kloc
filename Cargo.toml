@@ -223,3 +223,13 @@ tree-sitter-asciidoc = { version = "0.9", optional = true }
 [dev-dependencies]
 rand = "0.8"
 tempfile = "3"
+
+[profile.release]
+# Reduce binary size. strip=debuginfo is cargo 1.94's default already, but
+# keeping it explicit documents intent. opt-level="s" favours code size;
+# fat LTO + single codegen unit maximise cross-crate dead-code elimination.
+strip = "debuginfo"
+opt-level = "s"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
