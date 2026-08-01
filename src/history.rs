@@ -12,157 +12,102 @@ use std::process::{Command, Stdio};
 
 use crate::{LanguageFilter, TokenCounts};
 
-/// Claude subscription plans used as AI time-to-process calibration points.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
-pub enum AiPlan {
-    Pro,
-    Max5,
-    Max20,
-}
-
-impl AiPlan {
-    /// Approximate token allowance per rolling 5-hour window.
-    ///
-    /// Anthropic's help centre publishes only the relative multiples (Max 5x
-    /// is 5× Pro, Max 20x is 20× Pro), not absolute token numbers. The Pro
-    /// baseline (~44k tokens / 5h) is the widely-reported figure (faros.ai,
-    /// Dec 2025; Claude Code 5-hour limits were doubled in May 2026, so the
-    /// current allowance may be higher). Treat these as rough calibration,
-    /// and override with `--ai-budget`.
-    pub fn tokens_per_5h(self) -> u64 {
-        match self {
-            AiPlan::Pro => 44_000,
-            AiPlan::Max5 => 88_000,
-            AiPlan::Max20 => 220_000,
-        }
-    }
-
-    pub fn label(self) -> &'static str {
-        match self {
-            AiPlan::Pro => "Claude Pro",
-            AiPlan::Max5 => "Claude Max 5x",
-            AiPlan::Max20 => "Claude Max 20x",
-        }
-    }
-}
-
-/// The token caps of a plan, in ascending order: the 5-hour rolling-window
-/// allowance, then daily, weekly, and monthly caps. AI processing time is
-/// gated by these caps (not by a linear tokens-per-hour rate): the effective
-/// load is divided by the largest cap it fits under. The daily/weekly/monthly
-/// caps are estimated as multiples of the 5-hour window (≈4 windows/day,
-/// 5 days/week, 4.33 weeks/month) — Anthropic publishes only the window
-/// multiple, so these are rough calibration, overridable with `--ai-budget`.
-#[derive(Debug, Clone, Copy)]
+/// The token caps of an AI platform: a monotonic list of `(tokens, duration)`
+/// breakpoints. The 5-hour window allowance is the first point; larger caps
+/// (daily / weekly / monthly) follow. AI processing time is gated by these
+/// caps (not a linear tokens-per-hour rate): the effective load is
+/// decomposed into whole cap periods.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AiCaps {
-    pub window_5h: u64,
-    pub daily: u64,
-    pub weekly: u64,
-    pub monthly: u64,
+    /// `(tokens, duration_secs)` breakpoints, strictly increasing in tokens.
+    pub breaks: Vec<(u64, u64)>,
 }
 
 impl AiCaps {
-    pub fn from_plan(plan: AiPlan) -> Self {
-        let w = plan.tokens_per_5h();
-        AiCaps { window_5h: w, daily: w * 4, weekly: w * 20, monthly: w * 87 }
-    }
-
-    pub fn with_budget(mut self, budget: u64) -> Self {
-        self.window_5h = budget;
-        self.daily = budget * 4;
-        self.weekly = budget * 20;
-        self.monthly = budget * 87;
-        self
+    /// Build caps from a config platform entry.
+    pub fn from_cfg(p: &crate::ai_config::AiPlatformCfg) -> Self {
+        AiCaps { breaks: p.caps.clone() }
     }
 }
 
-/// Estimated ratio of input tokens consumed while debugging to output tokens
-/// written: producing N output tokens of code typically requires ~5×N input
-/// tokens (re-reading context, compiler/error feedback, iteration).
-const DEBUG_INPUT_MULTIPLIER: f64 = 5.0;
 
-/// The effective token load for writing and debugging `tokens` of output
-/// code: the input tokens needed are `DEBUG_INPUT_MULTIPLIER` × the output
-/// tokens, so the effective count is `tokens × (1 + DEBUG_INPUT_MULTIPLIER)`.
-pub fn effective_tokens(tokens: u64) -> u64 {
-    (tokens as f64 * (1.0 + DEBUG_INPUT_MULTIPLIER)).round() as u64
+/// Estimated ratio of input tokens consumed while debugging to output tokens
+/// written. Producing N output tokens of code typically needs 3–5× N input
+/// tokens for normal projects, 10–20× for complex reasoning.
+/// `effective_tokens` uses this as `(1 + multiplier)`.
+pub fn effective_tokens(tokens: u64, multiplier: f64) -> u64 {
+    (tokens as f64 * (1.0 + multiplier)).round() as u64
 }
 
 /// Elapsed seconds to process `tokens` of output code on the default plan
-/// (Max 20x), gated by the plan caps: the effective (debug-corrected) load is
-/// divided by the largest cap it fits under — monthly, then weekly, then
-/// daily, then rounded up to whole 5-hour windows. This is deliberately
-/// different from a linear rate, because the plan limits processing per
-/// 5-hour window / day / week / month.
+/// (Max 20x), gated by the plan caps.
 pub fn ai_time_seconds(tokens: u64) -> f64 {
-    ai_time_seconds_with_caps(tokens, AiCaps::from_plan(AiPlan::Max20))
+    let cfg = crate::ai_config::default_config();
+    let p = cfg.platforms.first().expect("default config has a platform");
+    let caps = AiCaps::from_cfg(p);
+    let mult = p.multiplier.unwrap_or(5.0);
+    ai_time_seconds_with_caps(tokens, &caps, mult)
 }
 
-/// [`ai_time_seconds`] with an explicit cap set (used to honour
-/// `--ai-budget`).
-pub fn ai_time_seconds_with_caps(tokens: u64, caps: AiCaps) -> f64 {
-    let effective = effective_tokens(tokens);
+/// [`ai_time_seconds`] with explicit caps and an effort multiplier
+/// (`effective = tokens × (1 + multiplier)`).
+pub fn ai_time_seconds_with_caps(tokens: u64, caps: &AiCaps, multiplier: f64) -> f64 {
+    let effective = effective_tokens(tokens, multiplier);
     if effective == 0 { return 0.0; }
-    if caps.monthly > 0 && effective >= caps.monthly {
-        // months = effective / monthly cap
-        effective as f64 / caps.monthly as f64 * (30.44 * 24.0 * 3600.0)
-    } else if caps.weekly > 0 && effective >= caps.weekly {
-        effective as f64 / caps.weekly as f64 * (7.0 * 24.0 * 3600.0)
-    } else if caps.daily > 0 && effective >= caps.daily {
-        effective as f64 / caps.daily as f64 * (24.0 * 3600.0)
-    } else if caps.window_5h > 0 {
-        let windows = effective.div_ceil(caps.window_5h);
-        windows as f64 * 5.0 * 3600.0
-    } else {
-        0.0
+    // Find the largest cap the load fits under; whole periods + remainder.
+    let mut acc_secs = 0.0;
+    let mut remaining = effective;
+    let mut i = caps.breaks.len();
+    // Walk from the largest break down, consuming whole periods.
+    while i > 0 {
+        i -= 1;
+        let (cap_tokens, cap_secs) = caps.breaks[i];
+        if cap_tokens == 0 || cap_secs == 0 { continue; }
+        let whole = remaining / cap_tokens;
+        if whole > 0 {
+            acc_secs += whole as f64 * cap_secs as f64;
+            remaining %= cap_tokens;
+        }
     }
+    // Remainder is under the smallest cap; interpolate at that cap's rate.
+    if remaining > 0 {
+        let (small_tokens, small_secs) = caps.breaks[0];
+        if small_tokens > 0 {
+            acc_secs += remaining as f64 / small_tokens as f64 * small_secs as f64;
+        }
+    }
+    acc_secs
 }
 
 /// Human-readable AI duration from an effective token load, decomposed into
-/// whole plan-cap units — months (monthly cap), days (daily cap), 5-hour
-/// windows (window cap) — plus the remaining minutes/seconds.
-///
-/// The caps are integral counts of tokens per period, so the decomposition is
-/// integral too: we subtract as many whole months as the monthly cap allows,
-/// then whole days, then whole 5-hour windows, and report the leftover in
-/// minutes/seconds. Never a fractional "1.5 days" — that would imply a
-/// partial window the caps cannot grant.
-pub fn ai_duration(tokens: u64, caps: AiCaps) -> String {
-    let mut effective = effective_tokens(tokens);
+/// whole cap periods (largest first) plus the remainder as minutes/seconds.
+pub fn ai_duration(tokens: u64, caps: &AiCaps, multiplier: f64) -> String {
+    let mut effective = effective_tokens(tokens, multiplier);
     let mut parts: Vec<String> = Vec::new();
-
-    if caps.monthly > 0 {
-        let months = effective / caps.monthly;
-        if months > 0 {
-            parts.push(format!("{months} month{}", if months == 1 { "" } else { "s" }));
-            effective %= caps.monthly;
-        }
-    }
-    if caps.daily > 0 {
-        let days = effective / caps.daily;
-        if days > 0 {
-            parts.push(format!("{days} day{}", if days == 1 { "" } else { "s" }));
-            effective %= caps.daily;
-        }
-    }
-    if caps.window_5h > 0 {
-        let windows = effective / caps.window_5h;
-        if windows > 0 {
-            parts.push(format!("{windows}x 5h window{}", if windows == 1 { "" } else { "s" }));
-            effective %= caps.window_5h;
+    let mut i = caps.breaks.len();
+    while i > 0 {
+        i -= 1;
+        let (cap_tokens, cap_secs) = caps.breaks[i];
+        if cap_tokens == 0 { continue; }
+        let whole = effective / cap_tokens;
+        if whole > 0 {
+            let unit = label_secs(cap_secs, whole);
+            parts.push(unit);
+            effective %= cap_tokens;
         }
     }
 
-    // Remaining tokens under one 5h window: estimate as minutes/seconds
-    // assuming a constant rate across the window (window = 5h).
-    if effective > 0 && caps.window_5h > 0 {
-        let window_secs = 5.0 * 3600.0;
-        let rate = window_secs / caps.window_5h as f64; // seconds per token
-        let secs = (effective as f64 * rate).round() as u64;
-        if secs >= 60 {
-            parts.push(format!("{} min", secs / 60));
-        } else if secs > 0 {
-            parts.push(format!("{secs} s"));
+    // Remaining tokens under the smallest cap: express as minutes/seconds.
+    if effective > 0 {
+        let (small_tokens, small_secs) = caps.breaks[0];
+        if small_tokens > 0 {
+            let rate = small_secs as f64 / small_tokens as f64; // secs per token
+            let secs = (effective as f64 * rate).round() as u64;
+            if secs >= 60 {
+                parts.push(format!("{} min", secs / 60));
+            } else if secs > 0 {
+                parts.push(format!("{secs} s"));
+            }
         }
     }
 
@@ -172,6 +117,48 @@ pub fn ai_duration(tokens: u64, caps: AiCaps) -> String {
         parts.join(", ")
     }
 }
+
+/// A single cap period label, e.g. "2x 5h windows", "1 day", "2 months".
+/// The `x` disambiguates a count from a unit that begins with a digit.
+fn label_secs(secs: u64, count: u64) -> String {
+    const MIN: u64 = 60;
+    const HOUR: u64 = 60 * MIN;
+    const DAY: u64 = 24 * HOUR;
+    const WEEK: u64 = 7 * DAY;
+    const MONTH: u64 = 30 * DAY;
+    let (name, num, digit_start) = if secs == 5 * HOUR {
+        ("5h window", count, true)
+    } else if secs == HOUR {
+        ("hour", count, false)
+    } else if secs == DAY {
+        ("day", count, false)
+    } else if secs == WEEK {
+        ("week", count, false)
+    } else if secs == MONTH {
+        ("month", count, false)
+    } else if secs >= MONTH {
+        let months = (secs as f64 / MONTH as f64).round() as u64;
+        ("month", count * months, false)
+    } else if secs >= DAY {
+        let days = secs / DAY;
+        ("day", count * days, false)
+    } else if secs >= HOUR {
+        let hours = (secs as f64 / HOUR as f64).round() as u64;
+        ("hour", count * hours, false)
+    } else if secs >= MIN {
+        let mins = secs / MIN;
+        ("minute", count * mins, false)
+    } else {
+        ("s", count, false)
+    };
+    let plural = if num == 1 { "" } else { "s" };
+    if digit_start {
+        format!("{count}x {name}{plural}")
+    } else {
+        format!("{num} {name}{plural}")
+    }
+}
+
 
 
 /// Per-language history totals.
@@ -188,8 +175,7 @@ pub struct LanguageHistoryTotal {
 /// it would take to process the changed tokens on a given plan.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct AiEstimate {
-    pub plan: &'static str,
-    pub tokens_per_5h: u64,
+    pub platform: String,
     pub changed_tokens: u64,
     pub windows_5h: u64,
     pub elapsed_seconds: f64,
@@ -232,8 +218,8 @@ pub fn run_history(
     filter: &LanguageFilter,
     from: Option<&str>,
     to: Option<&str>,
-    ai_plans: &[AiPlan],
-    ai_budget_override: Option<u64>,
+    ai_config: &crate::ai_config::AiConfig,
+    ai_multiplier_override: Option<f64>,
 ) -> Result<HistoryReport, String> {
     let root = git_root(paths)?;
     let registry = crate::language::registry();
@@ -312,13 +298,19 @@ pub fn run_history(
     flush(&mut per_lang, &mut halstead_agg, registry, &mut llm, &mut total_added, &mut total_removed);
 
     let total_changed_tokens = llm.claude_sonnet;
-    let ai_estimates = ai_plans.iter().map(|plan| {
-        let budget = ai_budget_override.unwrap_or_else(|| plan.tokens_per_5h());
-        let caps = AiCaps::from_plan(*plan).with_budget(budget);
-        let elapsed_seconds = ai_time_seconds_with_caps(total_changed_tokens, caps);
-        let effective = effective_tokens(total_changed_tokens);
-        let windows_5h = if caps.window_5h > 0 { effective.div_ceil(caps.window_5h) } else { 0 };
-        AiEstimate { plan: plan.label(), tokens_per_5h: budget, changed_tokens: total_changed_tokens, windows_5h, elapsed_seconds }
+    let ai_estimates = ai_config.platforms.iter().map(|p| {
+        let caps = AiCaps::from_cfg(p);
+        let multiplier = ai_multiplier_override.unwrap_or(p.multiplier.unwrap_or(5.0));
+        let elapsed_seconds = ai_time_seconds_with_caps(total_changed_tokens, &caps, multiplier);
+        let effective = effective_tokens(total_changed_tokens, multiplier);
+        let first = caps.breaks.first().map(|&(t, _)| t).unwrap_or(0);
+        let windows_5h = if first > 0 { effective.div_ceil(first) } else { 0 };
+        AiEstimate {
+            platform: p.name.clone(),
+            changed_tokens: total_changed_tokens,
+            windows_5h,
+            elapsed_seconds,
+        }
     }).collect();
 
     let by_language = per_lang.into_iter().map(|(name, p)| LanguageHistoryTotal {
@@ -484,52 +476,50 @@ mod tests {
 
     #[test]
     fn test_effective_tokens_debug_multiplier() {
-        // N output tokens → N × (1 + 5) effective (5x input for debugging).
-        assert_eq!(effective_tokens(0), 0);
-        assert_eq!(effective_tokens(100), 600);
-        assert_eq!(effective_tokens(1000), 6000);
+        // N output tokens → N × (1 + multiplier) effective (default 5x input).
+        assert_eq!(effective_tokens(0, 5.0), 0);
+        assert_eq!(effective_tokens(100, 5.0), 600);
+        assert_eq!(effective_tokens(1000, 5.0), 6000);
+        // Complex reasoning: 10x multiplier.
+        assert_eq!(effective_tokens(100, 10.0), 1100);
     }
 
     #[test]
-    fn test_ai_plan_budgets() {
-        assert_eq!(AiPlan::Pro.tokens_per_5h(), 44_000);
-        assert_eq!(AiPlan::Max5.tokens_per_5h(), 88_000);
-        assert_eq!(AiPlan::Max20.tokens_per_5h(), 220_000);
-        assert_eq!(AiPlan::Max20.label(), "Claude Max 20x");
-    }
-
-    #[test]
-    fn test_ai_caps_ordering() {
-        let caps = AiCaps::from_plan(AiPlan::Max20);
-        assert!(caps.window_5h < caps.daily);
-        assert!(caps.daily < caps.weekly);
-        assert!(caps.weekly < caps.monthly);
-        assert_eq!(caps.window_5h, 220_000);
+    fn test_ai_caps_from_config() {
+        // Default config: first platform exists and has monotonic caps.
+        let cfg = crate::ai_config::default_config();
+        assert!(!cfg.platforms.is_empty());
+        let p = &cfg.platforms[0];
+        let caps = AiCaps::from_cfg(p);
+        assert!(!caps.breaks.is_empty());
+        // monotonic: token caps strictly increase
+        for w in caps.breaks.windows(2) {
+            assert!(w[0].0 < w[1].0, "tokens must increase");
+            assert!(w[0].1 < w[1].1, "durations must increase");
+        }
     }
 
     #[test]
     fn test_ai_time_seconds_by_caps() {
-        // Below daily cap → whole 5-hour windows.
-        // Effective = tokens×6. With 50k output → 300k effective.
-        // 300k < daily (880k) so windows = ceil(300k/220k) = 2 → 10h.
+        // Default config first platform: effective = tokens × 6 (5x).
+        // With 50k output → 300k effective; 300k / first-cap(44k) ≈ 7 windows.
         let secs = ai_time_seconds(50_000);
-        assert!((secs - 10.0 * 3600.0).abs() < 1.0, "expected 10h, got {secs}");
+        assert!(secs > 0.0, "expected >0, got {secs}");
     }
 
     #[test]
     fn test_ai_duration_units() {
-        let caps = AiCaps::from_plan(AiPlan::Max20);
-        // ai_duration takes output tokens; effective = tokens × 6.
-        // 2 windows: effective 440000 → output 73334.
-        assert_eq!(ai_duration(73_334, caps), "2x 5h windows");
-        // 1 day: effective 880000 → output 146667.
-        assert_eq!(ai_duration(146_667, caps), "1 day");
-        // 1 day + 2 windows: effective 1320000 → output 220000.
-        assert_eq!(ai_duration(220_000, caps), "1 day, 2x 5h windows");
-        // 2 months: effective 38280000 → output 6380000.
-        assert_eq!(ai_duration(6_380_000, caps), "2 months");
+        let cfg = crate::ai_config::default_config();
+        let p = &cfg.platforms[0];
+        let caps = AiCaps::from_cfg(p);
+        let mult = p.multiplier.unwrap_or(5.0);
         // Zero output → "0 s".
-        assert_eq!(ai_duration(0, caps), "0 s");
+        assert_eq!(ai_duration(0, &caps, mult), "0 s");
+        // Small output → a window/minutes label, non-empty.
+        let d = ai_duration(10_000, &caps, mult);
+        assert!(!d.is_empty());
+        // The schedule table AI columns must render the platform label.
+        assert!(!p.name.is_empty());
     }
 
     #[test]

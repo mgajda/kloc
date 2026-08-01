@@ -1,0 +1,58 @@
+# kloc AI-platform calibration.
+#
+# Each platform has:
+#   name        - label shown as a schedule-table column
+#   caps        - a monotonic list of (tokens, duration_seconds) breakpoints.
+#                 The first is the smallest cap (e.g. 5-hour window); larger
+#                 caps (daily / weekly / monthly) follow. Both token counts and
+#                 durations must be strictly increasing.
+#   multiplier  - optional AI effort multiplier: effective tokens =
+#                 tokens × (1 + multiplier). 3-5x standard, 10-20x complex
+#                 reasoning. Defaults to 5.0 when omitted.
+#
+# Durations (seconds): 1h=3600, 1d=86400, 1w=604800, 1mo≈2592000 (30d).
+#
+# Figures are rough calibration from public reports (Anthropic publishes plan
+# multiples, not absolute token numbers; DeepSeek from OpenCode Go limits).
+# Override per invocation with --ai-multiplier; point elsewhere with
+# --ai-config.
+
+[[platforms]]
+name = "Claude Pro"
+multiplier = 5.0
+caps = [
+    [44000, 18000],      # ~44k tokens / 5h window
+    [176000, 86400],     # ~4x window / day
+    [880000, 604800],    # ~20x window / week
+    [3800000, 2592000],  # ~86x window / month
+]
+
+[[platforms]]
+name = "Claude Max 5x"
+multiplier = 5.0
+caps = [
+    [88000, 18000],
+    [352000, 86400],
+    [1760000, 604800],
+    [7600000, 2592000],
+]
+
+[[platforms]]
+name = "Claude Max 20x"
+multiplier = 5.0
+caps = [
+    [220000, 18000],
+    [880000, 86400],
+    [4400000, 604800],
+    [19140000, 2592000],
+]
+
+[[platforms]]
+name = "DeepSeek V4"
+multiplier = 5.0
+caps = [
+    [316500, 18000],     # ~31.6k requests / 5h (OpenCode Go DeepSeek V4 Flash)
+    [1266000, 86400],
+    [6330000, 604800],
+    [27500000, 2592000],
+]

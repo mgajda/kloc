@@ -11,15 +11,32 @@ fn main() {
     let color = kloc::color::Colors::from_mode(args.color);
     let filter = LanguageFilter::from(&args);
 
+    // --write-ai-config: emit the default config and exit.
+    if let Some(path) = args.write_ai_config.as_deref() {
+        let target = kloc::ai_config::config_path(Some(path))
+            .unwrap_or_else(|| std::path::PathBuf::from("ai.toml"));
+        match kloc::ai_config::write_default(&target) {
+            Ok(()) => { println!("wrote {}", target.display()); }
+            Err(e) => { eprintln!("{e}"); std::process::exit(1); }
+        }
+        return;
+    }
+
+    // Load the AI config (XDG file if present, else embedded default).
+    let ai_config = match kloc::ai_config::load(args.ai_config.as_deref()) {
+        Ok(c) => c,
+        Err(e) => { eprintln!("{e}"); std::process::exit(1); }
+    };
+
     if args.history {
-        let plan = args.ai_plan.unwrap_or(kloc::history::AiPlan::Max20);
         let report = match kloc::history::run_history(
-            &paths, &filter, args.from.as_deref(), args.to.as_deref(), &[plan], args.ai_budget)
+            &paths, &filter, args.from.as_deref(), args.to.as_deref(),
+            &ai_config, args.ai_multiplier)
         {
             Ok(r) => r,
             Err(e) => { eprintln!("{e}"); std::process::exit(1); }
         };
-        println!("{}", kloc::output::format_history(&report, color));
+        println!("{}", kloc::output::format_history(&report, color, &ai_config, args.ai_multiplier));
         return;
     }
 
@@ -27,5 +44,5 @@ fn main() {
     let opts = kloc::RunOptions::from_args(&args);
     let report = kloc::run(&paths, &filter, &opts);
     let full = args.full;
-    println!("{}", kloc::output::format(&report, &output_format, full, color));
+    println!("{}", kloc::output::format(&report, &output_format, full, color, &ai_config, args.ai_multiplier));
 }

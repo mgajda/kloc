@@ -43,16 +43,20 @@ fn test_colors() -> kloc::color::Colors {
     kloc::color::Colors::from_mode(kloc::color::ColorMode::Never)
 }
 
+fn test_ai_config() -> kloc::ai_config::AiConfig {
+    kloc::ai_config::default_config()
+}
+
 fn run_and_get_text(paths: &[PathBuf]) -> String {
     let filter = default_filter();
     let report = kloc::run(paths, &filter, &test_opts());
-    kloc::output::format(&report, &kloc::output::OutputFormat::Text, true, test_colors())
+    kloc::output::format(&report, &kloc::output::OutputFormat::Text, true, test_colors(), &test_ai_config(), None)
 }
 
 fn run_and_get_json(paths: &[PathBuf]) -> serde_json::Value {
     let filter = default_filter();
     let report = kloc::run(paths, &filter, &test_opts());
-    let json = kloc::output::format(&report, &kloc::output::OutputFormat::Json, true, test_colors());
+    let json = kloc::output::format(&report, &kloc::output::OutputFormat::Json, true, test_colors(), &test_ai_config(), None);
     serde_json::from_str(&json).unwrap()
 }
 
@@ -311,7 +315,7 @@ fn integration_json_parseable() {    let dir = test_dir("json_parse");
     let json_str = {
         let filter = default_filter();
         let report = kloc::run(&[dir.clone()], &filter, &test_opts());
-        kloc::output::format(&report, &kloc::output::OutputFormat::Json, true, test_colors())
+        kloc::output::format(&report, &kloc::output::OutputFormat::Json, true, test_colors(), &test_ai_config(), None)
     };
 
     let parsed: serde_json::Value = serde_json::from_str(&json_str)
@@ -463,11 +467,11 @@ fn git_commit(dir: &std::path::Path, msg: &str) {
 /// Run history analysis and return the (report, formatted text).
 fn run_history(dir: &std::path::Path) -> (kloc::history::HistoryReport, String) {
     let filter = default_filter();
+    let cfg = kloc::ai_config::default_config();
     let report = kloc::history::run_history(
-        &[dir.to_path_buf()], &filter, None, None,
-        &[kloc::history::AiPlan::Max20], None,
+        &[dir.to_path_buf()], &filter, None, None, &cfg, None,
     ).expect("history should run");
-    let text = kloc::output::format_history(&report, test_colors());
+    let text = kloc::output::format_history(&report, test_colors(), &test_ai_config(), None);
     (report, text)
 }
 

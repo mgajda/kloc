@@ -14,6 +14,7 @@ pub mod schedule;
 pub mod cache;
 pub mod color;
 pub mod history;
+pub mod ai_config;
 
 #[cfg(feature = "tokens")]
 pub mod tokens;

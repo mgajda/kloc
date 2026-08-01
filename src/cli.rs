@@ -1,7 +1,6 @@
 use std::path::PathBuf;
 use clap::Parser;
 use crate::color::ColorMode;
-use crate::history::AiPlan;
 
 #[derive(Parser, Debug)]
 #[command(name = "kloc", version, about = "Count Source Lines of Code")]
@@ -53,9 +52,12 @@ pub struct Args {
     #[arg(long, help = "With --history: end commit or revision (default: the current branch tip)")]
     pub to: Option<String>,
 
-    #[arg(long, value_enum, help = "Claude plan used to calibrate the AI time-to-process estimate (default: max20)")]
-    pub ai_plan: Option<AiPlan>,
+    #[arg(long, help = "Path to the AI-platform config file (default: $XDG_CONFIG_HOME/kloc/ai.toml)")]
+    pub ai_config: Option<String>,
 
-    #[arg(long, help = "Override the Claude plan's token allowance per 5-hour window (tokens)")]
-    pub ai_budget: Option<u64>,
+    #[arg(long, help = "Write the embedded default AI config to a file and exit (default: the XDG path)")]
+    pub write_ai_config: Option<String>,
+
+    #[arg(long, help = "Override the AI effort token multiplier for all platforms (e.g. 3-5 standard, 10-20 complex)")]
+    pub ai_multiplier: Option<f64>,
 }

@@ -132,9 +132,10 @@ zsh = ["tree-sitter-zsh"]
 [dependencies]
 base64 = { version = "0.22", optional = true }
 clap = { version = "4", features = ["derive"] }
-rayon = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+toml = "0.8"
+rayon = "1"
 tree-sitter = "0.26"
 tree-sitter-language = "0.1"
 unicode-normalization = { version = "0.1", optional = true }

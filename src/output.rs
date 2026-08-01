@@ -13,7 +13,7 @@ pub enum OutputFormat {
 #[derive(Clone)]
 pub(crate) struct MetricCol {
     pub group: &'static str,
-    pub label: &'static str,
+    pub label: String,
     /// Foreground colour for this column (1=red..7=white).
     pub color: u8,
     /// Background colour shared by all columns in the same group.
@@ -135,15 +135,29 @@ fn render_schedule_table(cols: &[MetricCol], colors: &Colors) -> String {
 /// "Tree-sitter" column: a human programmer writes roughly 200–2000
 /// tree-sitter tokens (≈50–500 LOC) per day, so effort/schedule is
 /// `leaf_tokens / daily_rate` in person-days.
+/// Build the `(platform name, token count)` list for the schedule table from
+/// the known `TokenCounts` fields. Unknown config platforms get count 0.
+fn ai_tokens_for_config(tokens: Option<crate::TokenCounts>, cfg: &crate::ai_config::AiConfig) -> Vec<(String, u64)> {
+    let t = tokens.unwrap_or_default();
+    cfg.platforms.iter().map(|p| {
+        let count = match p.name.as_str() {
+            "Claude Sonnet" | "Claude Pro" | "Claude Max 5x" | "Claude Max 20x" => t.claude_sonnet,
+            "DeepSeek V4" | "DeepSeek V4 (OpenCode)" => t.deepseek_v4,
+            _ => 0,
+        };
+        (p.name.clone(), count)
+    }).collect()
+}
+
 fn build_schedule_cols(
     s: &crate::schedule::ScheduleReport,
-    llm_tokens: Option<crate::TokenCounts>,
+    ai_tokens: &[(String, u64)],
+    ai_config: &crate::ai_config::AiConfig,
+    ai_multiplier_override: Option<f64>,
     leaf_tokens: u64,
     halstead_volume: Option<f64>,
-    halstead_time_seconds: Option<f64>,
 ) -> Vec<MetricCol> {
     let months = |m: f64| human_duration(m * 30.44 * 24.0 * 3600.0);
-    let halstead_schedule = halstead_time_seconds.map(human_duration).unwrap_or_else(|| "—".to_string());
 
     // Human tree-sitter productivity: ~200–2000 tokens (≈50–500 LOC) per day.
     // We use the middle of that range as the daily rate.
@@ -159,83 +173,86 @@ fn build_schedule_cols(
         "—".to_string()
     };
 
-    // Token models: one column per LLM (Claude Sonnet, DeepSeek V4
-    // (OpenCode)). Metric and Effort are measured in tokens (with an ISO
-    // magnitude suffix); Schedule is the AI-plan time to process those tokens
-    // (counted by plan caps, not a linear rate). No team size.
-    let caps = crate::history::AiCaps::from_plan(crate::history::AiPlan::Max20);
-    let ai_dur = |n: u64| crate::history::ai_duration(n, caps);
-    let ai_effort = |n: u64| format!("{} tokens", human_tokens(crate::history::effective_tokens(n)));
-    let token_cols: Vec<MetricCol> = match llm_tokens {
-        Some(t) => vec![
-            MetricCol {
-                group: "AI", label: "Claude Sonnet", color: 6, bg: Some(236),
-                metric: if t.claude_sonnet > 0 { format!("{} tokens", human_tokens(t.claude_sonnet)) } else { "—".to_string() },
-                effort: if t.claude_sonnet > 0 { ai_effort(t.claude_sonnet) } else { "—".to_string() },
-                team: "—".to_string(),
-                schedule: if t.claude_sonnet > 0 { ai_dur(t.claude_sonnet) } else { "—".to_string() },
-            },
-            MetricCol {
-                group: "AI", label: "DeepSeek V4 (OpenCode)", color: 1, bg: Some(236),
-                metric: if t.deepseek_v4 > 0 { format!("{} tokens", human_tokens(t.deepseek_v4)) } else { "—".to_string() },
-                effort: if t.deepseek_v4 > 0 { ai_effort(t.deepseek_v4) } else { "—".to_string() },
-                team: "—".to_string(),
-                schedule: if t.deepseek_v4 > 0 { ai_dur(t.deepseek_v4) } else { "—".to_string() },
-            },
-        ],
-        None => vec![],
-    };
+    // One AI column per configured platform. Metric and Effort are measured
+    // in tokens (ISO magnitude suffix); Schedule is the platform's plan-cap
+    // time to process those tokens. No team size. Each platform carries its
+    // own caps and effort multiplier.
+    let mut ai_cols: Vec<MetricCol> = Vec::new();
+    for (idx, p) in ai_config.platforms.iter().enumerate() {
+        let count = ai_tokens.iter().find(|(name, _)| name == &p.name)
+            .map(|&(_, n)| n).unwrap_or(0);
+        let caps = crate::history::AiCaps::from_cfg(p);
+        let multiplier = ai_multiplier_override.unwrap_or(p.multiplier.unwrap_or(5.0));
+        let ai_dur = |n: u64| crate::history::ai_duration(n, &caps, multiplier);
+        let ai_effort = |n: u64| format!("{} tokens", human_tokens(crate::history::effective_tokens(n, multiplier)));
+        // Cycle colours so each column is distinct.
+        let color = [6u8, 1, 3, 4, 2, 5][idx % 6];
+        ai_cols.push(MetricCol {
+            group: "AI", label: p.name.clone(), color, bg: Some(236),
+            metric: if count > 0 { format!("{} tokens", human_tokens(count)) } else { "—".to_string() },
+            effort: if count > 0 { ai_effort(count) } else { "—".to_string() },
+            team: "—".to_string(),
+            schedule: if count > 0 { ai_dur(count) } else { "—".to_string() },
+        });
+    }
 
     // Classical models: metric is code size (lines of code, with a k human
     // suffix); effort in person-months; team size where the model has one.
     let mut cols = vec![
         MetricCol {
-            group: "LoC-driven", label: "COCOMO 1", color: 4, bg: Some(235),
+            group: "LoC-driven", label: "COCOMO 1".to_string(), color: 4, bg: Some(235),
             metric: format!("{:.1} k lines of code", s.ksloc),
             effort: human_person_months(s.cocomo.effort_person_months),
             team: format!("{:.1}", s.cocomo.avg_people),
             schedule: months(s.cocomo.schedule_months),
         },
         MetricCol {
-            group: "LoC-driven", label: "COCOMO 2", color: 2, bg: Some(235),
+            group: "LoC-driven", label: "COCOMO 2".to_string(), color: 2, bg: Some(235),
             metric: format!("{:.1} k lines of code", s.ksloc),
             effort: human_person_months(s.cocomo_ii.effort_person_months),
             team: format!("{:.1}", s.cocomo_ii.avg_people),
             schedule: months(s.cocomo_ii.schedule_months),
         },
         MetricCol {
-            group: "LoC-driven", label: "Putnam", color: 3, bg: Some(235),
+            group: "LoC-driven", label: "Putnam".to_string(), color: 3, bg: Some(235),
             metric: format!("{:.1} k lines of code", s.ksloc),
             effort: human_person_months(s.cocomo_ii.effort_person_months),
             team: format!("{:.1}", s.putnam.avg_people),
             schedule: months(s.putnam.schedule_months),
         },
         MetricCol {
-            group: "AST-driven", label: "Tree-sitter", color: 7, bg: None,
+            group: "AST-driven", label: "Tree-sitter".to_string(), color: 7, bg: None,
             metric: human_metric,
             effort: human_duration_str.clone(),
             team: "—".to_string(),
             schedule: human_duration_str,
         },
         MetricCol {
-            group: "AST-driven", label: "Halstead", color: 5, bg: None,
+            group: "AST-driven", label: "Halstead".to_string(), color: 5, bg: None,
             metric: match halstead_volume {
                 Some(v) => format!("{} volume", human_tokens(v as u64)),
                 None => "—".to_string(),
             },
-            effort: human_person_months(s.halstead_person_months),
-            team: "—".to_string(),
-            schedule: halstead_schedule,
+            effort: human_person_months(s.halstead.effort_person_months),
+            team: format!("{:.1}", s.halstead.avg_people),
+            schedule: months(s.halstead.schedule_months),
         },
     ];
-    cols.extend(token_cols);
+    cols.extend(ai_cols);
     cols
 }
 
-pub fn format(report: &Report, format: &OutputFormat, full: bool, colors: Colors) -> String {
+pub fn format(
+    report: &Report,
+    format: &OutputFormat,
+    full: bool,
+    colors: Colors,
+    ai_config: &crate::ai_config::AiConfig,
+    ai_multiplier_override: Option<f64>,
+) -> String {
     match format {
         OutputFormat::Json => serde_json::to_string_pretty(report).unwrap(),
-        OutputFormat::Text => format_text(report, full, colors),
+        OutputFormat::Text => format_text(report, full, colors, ai_config, ai_multiplier_override),
     }
 }
 
@@ -247,8 +264,14 @@ fn human_duration(seconds: f64) -> String {
     const DAY: f64 = 24.0 * HOUR;
     const MONTH: f64 = 30.44 * DAY;
     const YEAR: f64 = 12.0 * MONTH;
+    const KILOYEAR: f64 = 1000.0 * YEAR;
+    const MEGAYEAR: f64 = 1000.0 * KILOYEAR;
 
-    let (value, unit) = if seconds >= YEAR {
+    let (value, unit) = if seconds >= MEGAYEAR {
+        (seconds / MEGAYEAR, "Mya")
+    } else if seconds >= KILOYEAR {
+        (seconds / KILOYEAR, "kya")
+    } else if seconds >= YEAR {
         (seconds / YEAR, "years")
     } else if seconds >= MONTH {
         (seconds / MONTH, "months")
@@ -336,8 +359,11 @@ fn human_person_months(pm: f64) -> String {
     if pm < 0.0 || !pm.is_finite() { return "0 person-months".to_string(); }
     const WEEK: f64 = 12.0 / 52.0;
     const DAY: f64 = WEEK / 7.0;
+    const KILO_YEARS: f64 = 12.0 * 1000.0;
 
-    let (value, unit) = if pm >= 12.0 {
+    let (value, unit) = if pm >= KILO_YEARS {
+        (pm / KILO_YEARS, "thousand person-years")
+    } else if pm >= 12.0 {
         (pm / 12.0, "person-years")
     } else if pm >= 2.0 {
         (pm, "person-months")
@@ -351,7 +377,13 @@ fn human_person_months(pm: f64) -> String {
     format!("{value:.1} {unit}")
 }
 
-fn format_text(report: &Report, full: bool, colors: Colors) -> String {
+fn format_text(
+    report: &Report,
+    full: bool,
+    colors: Colors,
+    ai_config: &crate::ai_config::AiConfig,
+    ai_multiplier_override: Option<f64>,
+) -> String {
     let mut out = String::new();
     out.push_str("SLOC by language:\n\n");
     // Column headers, coloured to match the schedule-table metrics
@@ -432,8 +464,8 @@ fn format_text(report: &Report, full: bool, colors: Colors) -> String {
         out.push_str("\n--- Schedule ---\n\n");
 
         let halstead_volume = report.halstead.as_ref().map(|h| h.volume);
-        let halstead_time = report.halstead.as_ref().map(|h| h.time_seconds);
-        let cols = build_schedule_cols(s, report.llm_tokens, report.nodes.leaf_tokens, halstead_volume, halstead_time);
+        let ai_tokens = ai_tokens_for_config(report.llm_tokens, ai_config);
+        let cols = build_schedule_cols(s, &ai_tokens, ai_config, ai_multiplier_override, report.nodes.leaf_tokens, halstead_volume);
         out.push_str(&render_schedule_table(&cols, &colors));
     }
 
@@ -481,7 +513,12 @@ fn format_text(report: &Report, full: bool, colors: Colors) -> String {
 }
 
 /// Format the git-history report.
-pub fn format_history(report: &HistoryReport, colors: Colors) -> String {
+pub fn format_history(
+    report: &HistoryReport,
+    colors: Colors,
+    ai_config: &crate::ai_config::AiConfig,
+    ai_multiplier_override: Option<f64>,
+) -> String {
     let mut out = String::new();
     out.push_str("Git history:\n\n");
     out.push_str(&format!("{:44}= {}\n", "Commits analyzed", report.commits));
@@ -511,13 +548,14 @@ pub fn format_history(report: &HistoryReport, colors: Colors) -> String {
     // Same grouped schedule table as the normal report, but estimated from
     // the diff-added lines and changed tokens rather than the full source.
     let halstead_volume = report.halstead.as_ref().map(|h| h.volume);
-    let halstead_time = report.halstead.as_ref().map(|h| h.time_seconds);
+    let ai_tokens = ai_tokens_for_config(report.llm_changed_tokens, ai_config);
     let cols = build_schedule_cols(
         &report.schedule,
-        report.llm_changed_tokens,
+        &ai_tokens,
+        ai_config,
+        ai_multiplier_override,
         report.leaf_tokens,
         halstead_volume,
-        halstead_time,
     );
     out.push_str("\n--- Schedule (from diffs) ---\n\n");
     out.push_str(&render_schedule_table(&cols, &colors));
@@ -574,10 +612,30 @@ mod tests {
         assert_eq!(human_person_months(0.0), "0.0 person-months");
     }
 
+    #[test]
+    fn test_human_duration_kya_mya() {
+        const YEAR: f64 = 12.0 * 30.44 * 24.0 * 3600.0;
+        const KILOYEAR: f64 = 1000.0 * YEAR;
+        const MEGAYEAR: f64 = 1_000_000.0 * YEAR;
+        // Well under a year → months.
+        assert_eq!(human_duration(0.5 * YEAR), "6.0 months");
+        // Hundreds of years → years.
+        assert_eq!(human_duration(500.0 * YEAR), "500.0 years");
+        // Thousands of years → kya.
+        assert_eq!(human_duration(2_400.0 * YEAR), "2.4 kya");
+        // Millions of years → Mya.
+        assert_eq!(human_duration(2_400_000.0 * YEAR), "2.4 Mya");
+        // 2.4 billion years is still Mya.
+        assert_eq!(human_duration(2_400_000_000.0 * YEAR), "2400.0 Mya");
+        // Boundary: exactly 1000 years → kya, 1e6 years → Mya.
+        assert_eq!(human_duration(KILOYEAR), "1.0 kya");
+        assert_eq!(human_duration(MEGAYEAR), "1.0 Mya");
+    }
+
     // ---- Schedule-table layout tests -------------------------------------
 
-    fn col(group: &'static str, label: &'static str, metric: &str, effort: &str, team: &str, schedule: &str) -> MetricCol {
-        MetricCol { group, label, color: 1, bg: None, metric: metric.to_string(), effort: effort.to_string(), team: team.to_string(), schedule: schedule.to_string() }
+    fn col(group: &'static str, label: &str, metric: &str, effort: &str, team: &str, schedule: &str) -> MetricCol {
+        MetricCol { group, label: label.to_string(), color: 1, bg: None, metric: metric.to_string(), effort: effort.to_string(), team: team.to_string(), schedule: schedule.to_string() }
     }
 
     fn csi_strip(s: &str) -> String {

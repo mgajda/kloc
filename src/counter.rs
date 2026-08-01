@@ -41,42 +41,75 @@ pub fn count(source: &[u8], spec: &LanguageSpec) -> CountResult {
     collect_comment_ranges(&root, &comment_kinds, &mut comment_ranges);
 
     let nodes = count_nodes(&root);
-    let total_lines = line_count(source);
+
+    // Single-pass line-start index so line lookups are O(1) instead of a
+    // per-line / per-range rescans of the whole file (which is O(n²) on large
+    // files and dominated the runtime for big codebases).
+    let line_starts = line_starts(source);
+    let total_lines = line_starts.len();
     let mut line_is_comment = vec![false; total_lines];
 
     for &(start, end) in &comment_ranges {
-        let start_line = byte_to_line(source, start, total_lines);
-        let end_line = byte_to_line(source, end.saturating_sub(1), total_lines);
+        let start_line = line_index(&line_starts, start, total_lines);
+        let end_line = line_index(&line_starts, end.saturating_sub(1), total_lines);
         for line in line_is_comment[start_line..=end_line].iter_mut() {
             *line = true;
+        }
+    }
+
+    // Merge overlapping/adjacent comment intervals (tree-sitter ranges are
+    // already disjoint, but adjacent comments collapse into one for the sweep).
+    let mut merged: Vec<(usize, usize)> = Vec::new();
+    for &(s, e) in &comment_ranges {
+        if let Some(last) = merged.last_mut()
+            && s <= last.1 {
+            if e > last.1 { last.1 = e; }
+        } else {
+            merged.push((s, e));
         }
     }
 
     let mut sloc = 0u64;
     let mut comments = 0u64;
     let mut blanks = 0u64;
+    // Persistent cursor into `merged`, advanced monotonically as we sweep the
+    // comment lines in order. This keeps the whole scan linear — a fresh
+    // per-line scan would be O(comment_lines × intervals).
+    let mut ci = 0usize;
 
     for (line_idx, is_comment) in line_is_comment.iter().enumerate() {
-        let line_range = line_byte_range(source, line_idx);
-        let line_text = &source[line_range.0..line_range.1];
+        let line_start = line_starts[line_idx];
+        let line_end = if line_idx + 1 < total_lines {
+            line_starts[line_idx + 1]
+        } else {
+            source.len()
+        };
+        let line_text = &source[line_start..line_end];
         let is_blank = line_text.iter().all(|&b| b.is_ascii_whitespace());
 
         if is_blank {
             blanks += 1;
         } else if *is_comment {
-            let has_code = {
-                let mut i = line_range.0;
-                let mut found = false;
-                while i < line_range.1 {
-                    let in_comment = comment_ranges.iter().any(|&(cs, ce)| i >= cs && i < ce);
-                    if !in_comment && !source[i].is_ascii_whitespace() {
-                        found = true;
-                        break;
-                    }
-                    i += 1;
+            // Does the line contain any non-whitespace byte outside a comment?
+            let mut i = line_start;
+            let mut has_code = false;
+            while i < line_end {
+                // Skip intervals wholly before the current byte.
+                while ci < merged.len() && merged[ci].1 <= i {
+                    ci += 1;
                 }
-                found
-            };
+                // If inside a comment interval, jump to its end.
+                if ci < merged.len() && i >= merged[ci].0 {
+                    i = line_end.min(merged[ci].1);
+                    continue;
+                }
+                // Outside any comment: a non-whitespace byte means code.
+                if !source[i].is_ascii_whitespace() {
+                    has_code = true;
+                    break;
+                }
+                i += 1;
+            }
             if has_code {
                 sloc += 1;
             } else {
@@ -88,6 +121,21 @@ pub fn count(source: &[u8], spec: &LanguageSpec) -> CountResult {
     }
 
     CountResult { sloc, comments, blanks, nodes }
+}
+
+/// Byte offsets where each line starts. `line_starts[0] = 0`; a trailing
+/// newline is not a line of its own; an empty file has no lines.
+fn line_starts(source: &[u8]) -> Vec<usize> {
+    if source.is_empty() {
+        return vec![];
+    }
+    let mut starts = vec![0usize];
+    for (i, &b) in source.iter().enumerate() {
+        if b == b'\n' && i + 1 < source.len() {
+            starts.push(i + 1);
+        }
+    }
+    starts
 }
 
 fn count_nodes(root: &Node) -> NodeCounts {
@@ -132,44 +180,13 @@ fn line_count(source: &[u8]) -> usize {
         + if source.last() != Some(&b'\n') { 1 } else { 0 }
 }
 
-fn byte_to_line(source: &[u8], byte: usize, total_lines: usize) -> usize {
-    if byte >= source.len() {
-        return total_lines.saturating_sub(1);
+/// Binary-search the line that contains `byte`, given the `line_starts` index.
+fn line_index(starts: &[usize], byte: usize, total_lines: usize) -> usize {
+    match starts.binary_search(&byte) {
+        Ok(i) => i,
+        Err(i) => i.saturating_sub(1),
     }
-    if source.is_empty() {
-        return 0;
-    }
-    source[..=byte.min(source.len() - 1)]
-        .iter()
-        .filter(|&&b| b == b'\n')
-        .count()
-        .min(total_lines.saturating_sub(1))
-}
-
-fn line_byte_range(source: &[u8], line_idx: usize) -> (usize, usize) {
-    if source.is_empty() {
-        return (0, 0);
-    }
-    let mut start = 0;
-    let mut current_line = 0;
-    for (i, &b) in source.iter().enumerate() {
-        if current_line == line_idx {
-            let end = source[i..]
-                .iter()
-                .position(|&c| c == b'\n')
-                .map(|pos| i + pos)
-                .unwrap_or(source.len());
-            return (i, end);
-        }
-        if b == b'\n' {
-            current_line += 1;
-            start = i + 1;
-        }
-    }
-    if current_line == line_idx && start <= source.len() {
-        return (start, source.len());
-    }
-    (0, 0)
+    .min(total_lines.saturating_sub(1))
 }
 
 #[cfg(test)]
@@ -197,19 +214,47 @@ mod tests {
     }
 
     #[test]
-    fn test_byte_to_line() {
-        let src = b"abc\ndef\nghi";
-        assert_eq!(byte_to_line(src, 0, 3), 0);
-        assert_eq!(byte_to_line(src, 4, 3), 1);
-        assert_eq!(byte_to_line(src, 8, 3), 2);
+    fn test_line_starts() {
+        assert_eq!(line_starts(b""), Vec::<usize>::new());
+        assert_eq!(line_starts(b"abc\ndef\nghi"), vec![0, 4, 8]);
+        // Trailing newline is not its own line.
+        assert_eq!(line_starts(b"a\nb\n"), vec![0, 2]);
     }
 
     #[test]
-    fn test_line_byte_range() {
-        let src = b"hello\nworld\n!";
-        assert_eq!(line_byte_range(src, 0), (0, 5));
-        assert_eq!(line_byte_range(src, 1), (6, 11));
-        assert_eq!(line_byte_range(src, 2), (12, 13));
+    fn test_line_index() {
+        let starts = line_starts(b"abc\ndef\nghi");
+        let n = starts.len();
+        assert_eq!(line_index(&starts, 0, n), 0);
+        assert_eq!(line_index(&starts, 4, n), 1);
+        assert_eq!(line_index(&starts, 8, n), 2);
+        // Bytes beyond the last newline map to the final line.
+        assert_eq!(line_index(&starts, 9, n), 2);
+        assert_eq!(line_index(&starts, 999, n), 2);
+    }
+
+    #[test]
+    fn test_count_comment_code_classification() {
+        use tree_sitter::Language;
+        use crate::language::LanguageCategory;
+        let spec = LanguageSpec {
+            name: "test",
+            category: LanguageCategory::Programming,
+            subgroup: None,
+            extensions: &[],
+            shebangs: &[],
+            filenames: &[],
+            grammar_fn: || Language::new(tree_sitter_rust::LANGUAGE),
+            comment_kinds: &["line_comment", "block_comment"],
+        };
+        // Line 1: trailing comment on code → SLOC.
+        // Line 2: pure comment → comments.
+        // Line 3: code.
+        let src = b"let x = 1; // trailing\n// pure comment\nlet y = 2;\n";
+        let r = count(src, &spec);
+        assert_eq!(r.sloc, 2, "trailing-comment and plain code lines are SLOC");
+        assert_eq!(r.comments, 1, "pure comment line is a comment");
+        assert_eq!(r.blanks, 0);
     }
 
     #[test]

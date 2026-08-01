@@ -89,7 +89,7 @@ pub struct ScheduleReport {
     pub cocomo: CocomoBreakdown,
     pub cocomo_ii: CocomoIiBreakdown,
     pub putnam: PutnamBreakdown,
-    pub halstead_person_months: f64,
+    pub halstead: HalsteadBreakdown,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -112,6 +112,19 @@ pub struct PutnamBreakdown {
     pub schedule_years: f64,
     pub schedule_months: f64,
     pub avg_people: f64,
+}
+
+/// Halstead's own schedule is single-developer (T = E/18 s), which is absurd
+/// for large codebases. We reuse the COCOMO II schedule/effort relationship
+/// (TDEV = C·PM^F, F = 0.28) to derive a parallelizable schedule and the
+/// optimal team size that achieves it.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct HalsteadBreakdown {
+    pub effort_person_months: f64,
+    pub schedule_months: f64,
+    pub avg_people: f64,
+    /// The single-developer Halstead time (T = E/18 s), in seconds.
+    pub single_developer_seconds: f64,
 }
 
 /// Build the schedule report from SLOC and Halstead effort.
@@ -144,12 +157,25 @@ pub fn estimate(sloc: u64, halstead_effort: f64) -> ScheduleReport {
         avg_people: if py > 0.0 { person_years / py } else { 0.0 },
     };
 
+    // Halstead: single-developer time is absurd for large codebases, so we
+    // derive a parallelizable schedule and optimal team size from the COCOMO II
+    // schedule relationship.
+    let halstead_pm = halstead_person_months(halstead_effort);
+    let halstead = HalsteadBreakdown {
+        effort_person_months: halstead_pm,
+        schedule_months: cocomo_ii_schedule_months(halstead_pm),
+        avg_people: if halstead_pm > 0.0 && cocomo_ii_schedule_months(halstead_pm) > 0.0 {
+            halstead_pm / cocomo_ii_schedule_months(halstead_pm)
+        } else { 0.0 },
+        single_developer_seconds: halstead_effort / 18.0,
+    };
+
     ScheduleReport {
         ksloc,
         cocomo,
         cocomo_ii,
         putnam,
-        halstead_person_months: halstead_person_months(halstead_effort),
+        halstead,
     }
 }
 
@@ -205,6 +231,8 @@ mod tests {
         assert!(r.cocomo.effort_person_months > 0.0);
         assert!(r.cocomo_ii.effort_person_months > 0.0);
         assert!(r.putnam.schedule_months > 0.0);
-        assert!(r.halstead_person_months > 0.0);
+        assert!(r.halstead.effort_person_months > 0.0);
+        assert!(r.halstead.schedule_months > 0.0);
+        assert!(r.halstead.avg_people > 0.0);
     }
 }

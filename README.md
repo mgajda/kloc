@@ -56,8 +56,9 @@ kloc --no-ignore-defaults     # ignore nothing by default
 kloc --history          # analyze git history (changed tokens, AI time to process)
 kloc --history --from v1.0          # range: from v1.0.. (to branch tip)
 kloc --history --from v1.0 --to v2.0  # range: v1.0..v2.0
-kloc --history --ai-plan pro   # calibrate AI estimate on Claude Pro (or max5, max20)
-kloc --history --ai-budget 50000  # override the 5-hour token budget
+kloc --ai-config /path/ai.toml   # use a custom AI-platform config
+kloc --write-ai-config           # write the embedded default AI config and exit
+kloc --ai-multiplier 10          # override the AI effort multiplier for all platforms
 ```
 
 By default the walker skips dependency / build-cache directories:
@@ -70,11 +71,15 @@ so `--ignore dist` skips any `dist/` at any depth.
 The schedule/effort block is a grouped table: rows are Metric / Effort / Team
 size / Schedule; columns are the estimation methodologies, grouped into
 families (LoC-driven, AST-driven, AI), each column a distinct colour. The
-**AI** columns (Claude Sonnet, DeepSeek V4) are LLM-based: their metric and
-effort are token counts (with an ISO magnitude suffix, e.g. `595k tokens`),
-and their schedule is the Claude-plan time to process those tokens, counted
-by plan caps (5h window / day / week / month) rather than a linear rate
-(no team size).
+**AI** columns are LLM-based: their metric and effort are token counts (with an
+ISO magnitude suffix, e.g. `595k tokens`), and their schedule is the
+platform's plan-cap time to process those tokens, counted by plan caps
+(5h window / day / week / month) rather than a linear rate (no team size).
+The **Halstead** column shows an *optimal team size* derived from the COCOMO II
+schedule relationship, so its schedule is the parallelized time (not the
+single-developer `E/18s` figure, which is shown separately as "Time to
+implement"). Duration units run up to years, kya (thousands of years), and
+Mya (millions of years).
 
 Output is concise by default: per-language SLOC, total code/comment lines,
 token counts, Halstead time-to-implement, average cyclomatic complexity,
@@ -105,17 +110,29 @@ Token counts are always computed:
 
 `kloc --history` streams `git log -p` and counts the tokens changed
 (added + modified + removed) across the repository's commit history, per
-language, then estimates how long it would take to process those tokens on a
-Claude subscription plan — Claude Pro / Max 5x / Max 20x (default Max 20x),
-selected with `--ai-plan`. Build with `--features tokens` so the changed-token
-count is real; without it the token counts are zero.
+language, then estimates how long it would take to process those tokens on
+each configured AI platform. Build with `--features tokens` so the
+changed-token count is real; without it the token counts are zero.
 
-The plan budgets are **approximate calibration points**: Anthropic's help
+## AI-platform config
+
+AI platforms are defined in a TOML config file (multiple platforms, each with
+its own caps and effort multiplier), so providers can be calibrated
+independently. The default config is **embedded in the binary** and is used
+when no file is found. Discovery order: an explicit `--ai-config <path>`, else
+`$XDG_CONFIG_HOME/kloc/ai.toml` (or `~/.config/kloc/ai.toml`). `--write-ai-config`
+writes the embedded default to disk so you can edit it; `--ai-multiplier`
+overrides every platform's effort multiplier at once.
+
+Each platform entry has `name`, a monotonic `caps` list of `(tokens,
+duration_seconds)` breakpoints, and an optional `multiplier` (AI effort:
+effective tokens = tokens × (1 + multiplier); 3–5x standard, 10–20x complex
+reasoning). The figures are **approximate calibration**: Anthropic's help
 centre publishes only the relative plan multiples (Max 5x = 5× Pro, Max 20x =
-20× Pro), not absolute token numbers. The Pro baseline (~44k tokens per 5-hour
-window) follows the widely reported figure (faros.ai, Dec 2025; Claude Code
-5-hour limits were doubled in May 2026). Override with `--ai-budget <tokens>`
-if you want a different allowance.
+20× Pro), not absolute token numbers; the Pro baseline (~44k tokens per
+5-hour window) follows the widely reported figure (faros.ai, Dec 2025; Claude
+Code 5-hour limits were doubled in May 2026). DeepSeek V4 is estimated from
+OpenCode Go usage limits.
 
 ## Testing
 
