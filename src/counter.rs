@@ -157,17 +157,23 @@ fn count_nodes(root: &Node) -> NodeCounts {
     nodes
 }
 
+/// Pre-order walk collecting comment ranges (children pushed right-to-left so
+/// they pop left-to-right, matching the old recursion's byte order). Iterative
+/// so deeply nested trees can't overflow the call stack.
 fn collect_comment_ranges(
-    node: &Node,
+    root: &Node,
     comment_kinds: &HashSet<&str>,
     ranges: &mut Vec<(usize, usize)>,
 ) {
-    if comment_kinds.contains(node.kind()) {
-        ranges.push((node.start_byte(), node.end_byte()));
-    }
-    for i in 0..node.child_count() {
-        if let Some(child) = node.child(i as u32) {
-            collect_comment_ranges(&child, comment_kinds, ranges);
+    let mut stack = vec![*root];
+    while let Some(node) = stack.pop() {
+        if comment_kinds.contains(node.kind()) {
+            ranges.push((node.start_byte(), node.end_byte()));
+        }
+        for i in (0..node.child_count()).rev() {
+            if let Some(child) = node.child(i as u32) {
+                stack.push(child);
+            }
         }
     }
 }

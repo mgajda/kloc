@@ -172,8 +172,9 @@ fn classify(kind: &str, text: &str, parent_kind: &str) -> bool {
 }
 
 pub fn analyze(source: &[u8], spec: &LanguageSpec) -> ComplexityResult {
+    let language = spec.grammar();
     let mut parser = tree_sitter::Parser::new();
-    if parser.set_language(&spec.grammar()).is_err() {
+    if parser.set_language(&language).is_err() {
         return empty_result();
     }
     let tree = match parser.parse(source, None) {
@@ -190,45 +191,82 @@ pub fn analyze(source: &[u8], spec: &LanguageSpec) -> ComplexityResult {
         opds: &'a mut HashMap<String, u64>,
         decisions: u64,
         functions: u64,
-        in_fn: bool,
-        fn_depth: u32,
+        /// Number of enclosing (named) functions. Decisions count only inside
+        /// a function body; every function — nested or not — is counted.
+        fn_nesting: u32,
+        language: &'a tree_sitter::Language,
     }
 
-    fn walk_node(node: tree_sitter::Node, source: &[u8], state: &mut WalkState) {
-        let kind = node.kind();
-        let is_named = node.is_named();
-        let parent_kind = node.parent().as_ref().map_or("", |p| p.kind());
-
-        if (!is_named || node.child_count() == 0)
-            && let Ok(raw) = node.utf8_text(source) {
-                let text = raw.trim();
-                if !text.is_empty() {
-                    let is_op = classify(kind, text, parent_kind);
-                    let m = if is_op { &mut *state.ops } else { &mut *state.opds };
-                    m.entry(text.to_string()).and_modify(|c| *c += 1).or_insert(1);
+    /// Walk the whole tree iteratively with an explicit stack, so the
+    /// traversal cost and memory are bounded by tree size — not tree depth
+    /// (a recursive walk overflowed the call stack on ~16k-deep nesting).
+    ///
+    /// Each node's pre-visit passes down the kind of its *visible* parent so
+    /// children never have to call `node.parent()` (which walks down from the
+    /// root — O(depth) per node, and super-linear on deeply nested sources).
+    /// A `Exit` frame is pushed after a node's children to decrement the
+    /// function-nesting counter when the node was itself a function.
+    fn walk_tree(root: tree_sitter::Node, source: &[u8], state: &mut WalkState) {
+        enum Frame<'t> {
+            Visit { node: tree_sitter::Node<'t>, parent_kind: &'static str },
+            Exit { was_function: bool },
+        }
+        let mut stack: Vec<Frame> = vec![Frame::Visit { node: root, parent_kind: "" }];
+        while let Some(frame) = stack.pop() {
+            let (node, parent_kind) = match frame {
+                Frame::Exit { was_function } => {
+                    if was_function {
+                        state.fn_nesting -= 1;
+                    }
+                    continue;
                 }
+                Frame::Visit { node, parent_kind } => (node, parent_kind),
+            };
+
+            let kind = node.kind();
+            let is_named = node.is_named();
+            let is_function = is_named && kind_is_function(kind);
+
+            if (!is_named || node.child_count() == 0)
+                && let Ok(raw) = node.utf8_text(source) {
+                    let text = raw.trim();
+                    if !text.is_empty() {
+                        let is_op = classify(kind, text, parent_kind);
+                        let m = if is_op { &mut *state.ops } else { &mut *state.opds };
+                        m.entry(text.to_string()).and_modify(|c| *c += 1).or_insert(1);
+                    }
+                }
+
+            if is_function {
+                state.functions += 1;
+                state.fn_nesting += 1;
             }
 
-        if is_named && kind_is_function(kind) && !state.in_fn {
-            state.functions += 1;
-            state.in_fn = true;
-            state.fn_depth = 0;
-        }
-
-        if is_named && state.in_fn && kind_is_decision(kind) {
-            state.decisions += 1;
-        }
-
-        let mut child = node.walk();
-        if child.goto_first_child() {
-            if state.in_fn { state.fn_depth += 1; }
-            loop {
-                walk_node(child.node(), source, state);
-                if !child.goto_next_sibling() { break; }
+            if is_named && state.fn_nesting > 0 && kind_is_decision(kind) {
+                state.decisions += 1;
             }
-            if state.in_fn {
-                if state.fn_depth == 0 { state.in_fn = false; }
-                else { state.fn_depth -= 1; }
+
+            // Children inherit this node's visible-parent kind: a visible node
+            // is its children's visible parent; a hidden node passes its own
+            // visible parent along.
+            let child_parent_kind: &'static str =
+                if state.language.node_kind_is_visible(node.kind_id()) { kind } else { parent_kind };
+
+            // Collect children with a cursor, as the recursion did, so hidden
+            // nodes are visited exactly as before.
+            let mut child = node.walk();
+            if child.goto_first_child() {
+                let mut children: Vec<tree_sitter::Node> = Vec::new();
+                loop {
+                    children.push(child.node());
+                    if !child.goto_next_sibling() { break; }
+                }
+                // Push Exit first, then children reversed, so they pop in
+                // left-to-right order with the Exit frame last.
+                stack.push(Frame::Exit { was_function: is_function });
+                for c in children.into_iter().rev() {
+                    stack.push(Frame::Visit { node: c, parent_kind: child_parent_kind });
+                }
             }
         }
     }
@@ -236,9 +274,10 @@ pub fn analyze(source: &[u8], spec: &LanguageSpec) -> ComplexityResult {
     let mut ws = WalkState {
         ops: &mut op_counts, opds: &mut opd_counts,
         decisions: 0, functions: 0,
-        in_fn: false, fn_depth: 0,
+        fn_nesting: 0,
+        language: &language,
     };
-    walk_node(root, source, &mut ws);
+    walk_tree(root, source, &mut ws);
     let decisions = ws.decisions;
     let functions = ws.functions;
 

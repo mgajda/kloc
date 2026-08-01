@@ -542,3 +542,29 @@ fn integration_history_single_function_additions_match_source() {
     assert!(src.nodes.leaf_tokens > 0, "source must have leaf tokens (seed={seed})");
 }
 
+/// Deeply nested (but tiny) source must complete without overflowing the stack
+/// or going super-linear. The old recursive complexity walk overflowed the
+/// call stack around ~16k nesting depth and was quadratic (`node.parent()`
+/// walks down from the tree root for every node); at 40k depth it crashed, and
+/// the quadratic version took minutes on inputs a tenth this deep.
+#[test]
+fn integration_deep_nesting_completes_and_counts() {
+    let depth = 40_000;
+    let mut code = String::from("pub fn deep() -> u64 {\n    ");
+    code.push('1');
+    for _ in 0..depth {
+        code.push_str(" + (1");
+    }
+    for _ in 0..depth {
+        code.push(')');
+    }
+    code.push_str("\n}\n");
+
+    let dir = test_dir("deep_nesting");
+    write_file(&dir, "main.rs", code.as_bytes());
+    let json = run_and_get_json(&[dir]);
+    // The regression check is completing at all (the old code crashed here).
+    assert!(json["total_sloc"].as_u64().unwrap() > 0, "deeply nested source must parse to non-zero SLOC");
+    assert!(json["total_files"].as_u64().unwrap() == 1, "exactly one file");
+}
+
