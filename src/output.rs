@@ -159,26 +159,26 @@ fn build_schedule_cols(
         "—".to_string()
     };
 
-    // Token models: one column per LLM (Claude Max, DeepSeek V4 (OpenCode)).
-    // Metric is the token count; effort & schedule are the AI-plan time to
-    // process those tokens; no team size. AI duration is counted by plan caps
-    // (5h window / day / week / month), not by a linear time rate — this is
-    // why Claude/DeepSeek durations differ from the human tree-sitter days.
+    // Token models: one column per LLM (Claude Sonnet, DeepSeek V4
+    // (OpenCode)). Metric and Effort are measured in tokens (with an ISO
+    // magnitude suffix); Schedule is the AI-plan time to process those tokens
+    // (counted by plan caps, not a linear rate). No team size.
     let caps = crate::history::AiCaps::from_plan(crate::history::AiPlan::Max20);
     let ai_dur = |n: u64| crate::history::ai_duration(n, caps);
+    let ai_effort = |n: u64| format!("{} tokens", human_tokens(crate::history::effective_tokens(n)));
     let token_cols: Vec<MetricCol> = match llm_tokens {
         Some(t) => vec![
             MetricCol {
-                group: "AI", label: "Claude Max", color: 6, bg: Some(236),
+                group: "AI", label: "Claude Sonnet", color: 6, bg: Some(236),
                 metric: if t.claude_sonnet > 0 { format!("{} tokens", human_tokens(t.claude_sonnet)) } else { "—".to_string() },
-                effort: if t.claude_sonnet > 0 { ai_dur(t.claude_sonnet) } else { "—".to_string() },
+                effort: if t.claude_sonnet > 0 { ai_effort(t.claude_sonnet) } else { "—".to_string() },
                 team: "—".to_string(),
                 schedule: if t.claude_sonnet > 0 { ai_dur(t.claude_sonnet) } else { "—".to_string() },
             },
             MetricCol {
                 group: "AI", label: "DeepSeek V4 (OpenCode)", color: 1, bg: Some(236),
                 metric: if t.deepseek_v4 > 0 { format!("{} tokens", human_tokens(t.deepseek_v4)) } else { "—".to_string() },
-                effort: if t.deepseek_v4 > 0 { ai_dur(t.deepseek_v4) } else { "—".to_string() },
+                effort: if t.deepseek_v4 > 0 { ai_effort(t.deepseek_v4) } else { "—".to_string() },
                 team: "—".to_string(),
                 schedule: if t.deepseek_v4 > 0 { ai_dur(t.deepseek_v4) } else { "—".to_string() },
             },
@@ -403,12 +403,7 @@ fn format_text(report: &Report, full: bool, colors: Colors) -> String {
     out.push_str(&format!("{:44}= {}\n", "Total files", report.total_files));
 
     out.push('\n');
-    out.push_str("--- Tokens ---\n\n");
-    if let Some(t) = report.llm_tokens {
-        out.push_str(&format!("{:44}= {}\n", "LLM tokens (DeepSeek V4)", human_tokens(t.deepseek_v4)));
-        out.push_str(&format!("{:44}= {}\n", "LLM tokens (Claude Sonnet)", human_tokens(t.claude_sonnet)));
-    }
-    out.push_str(&format!("{:44}= {}\n", "Tree-sitter leaf tokens", human_tokens(report.nodes.leaf_tokens)));
+    // Tree-sitter named nodes are not shown elsewhere; keep as a single line.
     out.push_str(&format!("{:44}= {}\n", "Tree-sitter named nodes", human_tokens(report.nodes.named_nodes)));
 
     // Concise default: one complexity line + schedule.
@@ -494,11 +489,6 @@ pub fn format_history(report: &HistoryReport, colors: Colors) -> String {
     out.push_str(&format!("{:44}= {}\n", "Lines removed (parsed)", report.total_removed_lines));
     out.push_str(&format!("{:44}= {}\n", "All diff lines added", report.all_added_lines));
     out.push_str(&format!("{:44}= {}\n", "All diff lines removed", report.all_removed_lines));
-    out.push_str(&format!("{:44}= {}\n", "Changed tokens (Claude)", human_tokens(report.total_changed_tokens)));
-
-    if let Some(llm) = &report.llm_changed_tokens {
-        out.push_str(&format!("{:44}= {}\n", "Changed tokens (DeepSeek V4)", human_tokens(llm.deepseek_v4)));
-    }
 
     if !report.by_language.is_empty() {
         out.push_str("\nChanged lines by language:\n\n");
@@ -531,23 +521,8 @@ pub fn format_history(report: &HistoryReport, colors: Colors) -> String {
     );
     out.push_str("\n--- Schedule (from diffs) ---\n\n");
     out.push_str(&render_schedule_table(&cols, &colors));
-
-    if !report.ai_estimates.is_empty() {
-        out.push_str("\n--- AI time to process ---\n\n");
-        for e in &report.ai_estimates {
-            out.push_str(&format!(
-                "{:44}= {}x 5-hour windows ({} / window)\n",
-                e.plan, e.windows_5h, human_tokens(e.tokens_per_5h)
-            ));
-            out.push_str(&format!(
-                "  {:44}= {} changed tokens ({} total)\n",
-                "",
-                human_tokens(e.changed_tokens), human_duration(e.elapsed_seconds)
-            ));
-        }
-        out.push_str("\nCalibration is approximate (Anthropic publishes plan multiples,\n");
-        out.push_str("not absolute token numbers); override with --ai-budget.\n");
-    }
+    out.push_str("\nAI durations are approximate calibration (Anthropic publishes plan\n");
+    out.push_str("multiples, not absolute token numbers); override with --ai-budget.\n");
 
     out
 }
@@ -685,7 +660,7 @@ mod tests {
             col("LoC-driven", "COCOMO 1", "1 x", "2", "3", "4 months"),
             col("LoC-driven", "COCOMO 2", "1 x", "2", "3", "4 months"),
             col("Halstead", "Halstead", "1 x", "2", "—", "4 months"),
-            col("AI", "Claude Max", "1 x", "2", "—", "4 months"),
+            col("AI", "Claude Sonnet", "1 x", "2", "—", "4 months"),
             col("AI", "DeepSeek V4 (OpenCode)", "1 x", "2", "—", "4 months"),
         ];
         let out = render_schedule_table(&cols, &Colors::force(false));
@@ -695,7 +670,7 @@ mod tests {
         }
         // Column labels in order.
         let method_line = plain.lines().find(|l| l.contains("Method")).unwrap().to_string();
-        for label in ["COCOMO 1", "COCOMO 2", "Halstead", "Claude Max", "DeepSeek V4 (OpenCode)"] {
+        for label in ["COCOMO 1", "COCOMO 2", "Halstead", "Claude Sonnet", "DeepSeek V4 (OpenCode)"] {
             assert!(method_line.contains(label), "missing column {label:?} in {method_line:?}");
         }
     }

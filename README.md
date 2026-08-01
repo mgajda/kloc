@@ -69,9 +69,11 @@ so `--ignore dist` skips any `dist/` at any depth.
 
 The schedule/effort block is a grouped table: rows are Metric / Effort / Team
 size / Schedule; columns are the estimation methodologies, grouped into
-families (COCOMO 1 + COCOMO 2, Putnam, Halstead, Token), each column a
-distinct colour. The **Token** column is LLM-based: its metric is the token
-count and its effort/schedule is the Claude-plan time to process those tokens
+families (LoC-driven, AST-driven, AI), each column a distinct colour. The
+**AI** columns (Claude Sonnet, DeepSeek V4) are LLM-based: their metric and
+effort are token counts (with an ISO magnitude suffix, e.g. `595k tokens`),
+and their schedule is the Claude-plan time to process those tokens, counted
+by plan caps (5h window / day / week / month) rather than a linear rate
 (no team size).
 
 Output is concise by default: per-language SLOC, total code/comment lines,
