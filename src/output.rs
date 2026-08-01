@@ -451,8 +451,10 @@ pub fn format_history(report: &HistoryReport, colors: Colors) -> String {
     let mut out = String::new();
     out.push_str("Git history:\n\n");
     out.push_str(&format!("{:44}= {}\n", "Commits analyzed", report.commits));
-    out.push_str(&format!("{:44}= {}\n", "Lines added", report.total_added_lines));
-    out.push_str(&format!("{:44}= {}\n", "Lines removed", report.total_removed_lines));
+    out.push_str(&format!("{:44}= {}\n", "Lines added (parsed)", report.total_added_lines));
+    out.push_str(&format!("{:44}= {}\n", "Lines removed (parsed)", report.total_removed_lines));
+    out.push_str(&format!("{:44}= {}\n", "All diff lines added", report.all_added_lines));
+    out.push_str(&format!("{:44}= {}\n", "All diff lines removed", report.all_removed_lines));
     out.push_str(&format!("{:44}= {}\n", "Changed tokens (Claude)", human_tokens(report.total_changed_tokens)));
 
     if let Some(llm) = &report.llm_changed_tokens {

@@ -172,15 +172,21 @@ pub struct AiEstimate {
 pub struct HistoryReport {
     pub range: String,
     pub commits: u64,
+    /// Added lines in parsed languages (contribute to effort).
     pub total_added_lines: u64,
+    /// Removed lines in parsed languages.
     pub total_removed_lines: u64,
+    /// All added diff lines including unparsed/generated files.
+    pub all_added_lines: u64,
+    /// All removed diff lines including unparsed/generated files.
+    pub all_removed_lines: u64,
     pub total_changed_tokens: u64,
     pub by_language: Vec<LanguageHistoryTotal>,
     pub ai_estimates: Vec<AiEstimate>,
     pub llm_changed_tokens: Option<TokenCounts>,
-    /// Effort/schedule models estimated from the diff-added lines.
+    /// Effort/schedule models estimated from the parsed diff-added lines.
     pub schedule: crate::schedule::ScheduleReport,
-    /// Human-oriented tree-sitter token count estimated from diff LOC
+    /// Human-oriented tree-sitter token count estimated from parsed diff LOC
     /// (≈4 tokens per added line — the midpoint of 200–2000 tokens per
     /// 50–500 LOC).
     pub leaf_tokens: u64,
@@ -208,8 +214,14 @@ pub fn run_history(
     // Per-commit buffers, flushed to the tokenizer at each commit boundary to
     // keep memory bounded by a single commit's diff.
     let mut per_lang: BTreeMap<String, PerLang> = BTreeMap::new();
+    // Effort-relevant lines: only parsed languages contribute to the
+    // schedule estimate. Unparsed/generated files are counted separately
+    // (`all_added`/`all_removed`) so the totals reflect every diff line, but
+    // they never feed the COCOMO/Putnam/Halstead effort models.
     let mut total_added = 0u64;
     let mut total_removed = 0u64;
+    let mut all_added = 0u64;
+    let mut all_removed = 0u64;
     let mut llm = TokenCounts::default();
 
     let mut current_spec = None;
@@ -232,9 +244,12 @@ pub fn run_history(
         } else if line.starts_with("+++") || line.starts_with("---") {
             continue;
         } else if let Some(content) = line.strip_prefix('+') {
-            let spec = current_spec;
-            let name = spec.map(|s| s.name.to_string()).unwrap_or_else(|| "Other".to_string());
-            if spec.is_none_or(|s| filter.matches(s)) {
+            // Only lines within a detected, filter-matching language are
+            // parsed; the rest are counted (all_added) but not in effort.
+            let is_parsed = current_spec.is_some_and(|s| filter.matches(s));
+            all_added += 1;
+            if is_parsed {
+                let name = current_spec.unwrap().name.to_string();
                 let e = per_lang.entry(name).or_default();
                 if let Some(f) = &current_file {
                     e.files.insert(f.clone());
@@ -244,9 +259,10 @@ pub fn run_history(
                 e.added_bytes.extend_from_slice(content.as_bytes());
             }
         } else if let Some(content) = line.strip_prefix('-') {
-            let spec = current_spec;
-            let name = spec.map(|s| s.name.to_string()).unwrap_or_else(|| "Other".to_string());
-            if spec.is_none_or(|s| filter.matches(s)) {
+            let is_parsed = current_spec.is_some_and(|s| filter.matches(s));
+            all_removed += 1;
+            if is_parsed {
+                let name = current_spec.unwrap().name.to_string();
                 let e = per_lang.entry(name).or_default();
                 if let Some(f) = &current_file {
                     e.files.insert(f.clone());
@@ -282,6 +298,8 @@ pub fn run_history(
         commits,
         total_added_lines: total_added,
         total_removed_lines: total_removed,
+        all_added_lines: all_added,
+        all_removed_lines: all_removed,
         total_changed_tokens,
         by_language,
         ai_estimates,
