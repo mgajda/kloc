@@ -1,7 +1,7 @@
 # tree-sitter 0.26.x: recursive C functions whose depth is driven by user data
 
-**Status**: DRAFT — for filing upstream (tree-sitter/tree-sitter issue + PR).
-**Drafted**: 2026-08-02.
+**Status**: FILED — issue tree-sitter/tree-sitter#5807, fix PR tree-sitter/tree-sitter#5809.
+**Drafted**: 2026-08-01 (local mitigation; filed upstream 2026-08-02).
 **Source**: kloc profiling/handoff context — `tmp/HANDOFF.md` (session of 2026-08-01,
 which found a stack-overflow abort in kloc's own walks and the C-recursive
 `ts_node_child_with_descendant` underneath `ts_node_parent`).
