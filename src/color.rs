@@ -231,7 +231,10 @@ mod tests {
             let brand = unlighten(lc.fg, 0.40);
             assert!(hexes.insert(brand), "duplicate brand hex for {}: {:?}", lang.name, brand);
         }
-        assert!(hexes.len() >= 60, "expected most languages to have a colour");
+        assert_eq!(
+            hexes.len(), names.len(),
+            "every unique language must have a distinct brand colour"
+        );
     }
 
     #[test]
