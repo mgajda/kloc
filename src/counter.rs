@@ -148,13 +148,29 @@ fn count_nodes(root: &Node) -> NodeCounts {
         if node.child_count() == 0 {
             nodes.leaf_tokens += 1;
         }
-        for i in (0..node.child_count()).rev() {
-            if let Some(child) = node.child(i as u32) {
-                stack.push(child);
-            }
-        }
+        push_children_reversed(&mut stack, &node);
     }
     nodes
+}
+
+/// Push `node`'s children onto `stack` right-to-left so they pop in
+/// left-to-right order. Uses a tree cursor — O(children) — instead of
+/// `node.child(i)` per index, which rescans the children array from the
+/// start for each `i` (O(children²) on a node with many children, e.g. a
+/// flat file's root).
+fn push_children_reversed<'tree>(stack: &mut Vec<Node<'tree>>, node: &Node<'tree>) {
+    let mut child = node.walk();
+    if !child.goto_first_child() {
+        return;
+    }
+    let mut children: Vec<Node> = Vec::new();
+    loop {
+        children.push(child.node());
+        if !child.goto_next_sibling() {
+            break;
+        }
+    }
+    stack.extend(children.into_iter().rev());
 }
 
 /// Pre-order walk collecting comment ranges (children pushed right-to-left so
@@ -170,11 +186,7 @@ fn collect_comment_ranges(
         if comment_kinds.contains(node.kind()) {
             ranges.push((node.start_byte(), node.end_byte()));
         }
-        for i in (0..node.child_count()).rev() {
-            if let Some(child) = node.child(i as u32) {
-                stack.push(child);
-            }
-        }
+        push_children_reversed(&mut stack, &node);
     }
 }
 

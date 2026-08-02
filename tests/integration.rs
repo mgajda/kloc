@@ -568,3 +568,31 @@ fn integration_deep_nesting_completes_and_counts() {
     assert!(json["total_files"].as_u64().unwrap() == 1, "exactly one file");
 }
 
+/// Very wide (many top-level children) source must count correctly. The
+/// `count_nodes` / `collect_comment_ranges` walks once used
+/// `node.child(i)` per index, which rescans the children array from the
+/// start for each `i` — O(k²) on a node with k children, e.g. the root of a
+/// flat file. The walks now enumerate children with a tree cursor (O(k)).
+#[test]
+fn integration_wide_nesting_counts_every_function() {
+    let functions = 30_000;
+    let mut code = String::new();
+    for i in 0..functions {
+        code.push_str(&format!("fn f{i}() -> u64 {{ {i} }}\n"));
+    }
+
+    let dir = test_dir("wide_nesting");
+    write_file(&dir, "main.rs", code.as_bytes());
+    let json = run_and_get_json(&[dir]);
+    assert_eq!(json["total_files"].as_u64().unwrap(), 1, "exactly one file");
+    assert_eq!(
+        json["mccabe"]["function_count"].as_u64().unwrap(),
+        functions as u64,
+        "every top-level function must be counted"
+    );
+    assert!(
+        json["nodes"]["named_nodes"].as_u64().unwrap() >= functions as u64,
+        "each function contributes named nodes"
+    );
+}
+
