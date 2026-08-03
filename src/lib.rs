@@ -215,6 +215,7 @@ pub fn run(paths: &[PathBuf], filter: &LanguageFilter, opts: &RunOptions) -> Rep
     let mut counts: BTreeMap<String, (u64, u64, u64, u64, u64)> = BTreeMap::new();
     let mut halstead_agg: BTreeMap<String, complexity::HalsteadMetrics> = BTreeMap::new();
     let mut mccabe_agg: BTreeMap<String, complexity::McCabeMetrics> = BTreeMap::new();
+    let mut hk_agg = complexity::HenryKafuraMetrics::default();
     let mut nodes_agg = complexity::NodeCounts::default();
     let mut total_bytes: u64 = 0;
     let mut total_functions: u64 = 0;
@@ -251,6 +252,11 @@ pub fn run(paths: &[PathBuf], filter: &LanguageFilter, opts: &RunOptions) -> Rep
             m.function_count += cx.mccabe.function_count;
             m.total_cyclomatic += cx.mccabe.total_cyclomatic;
             total_functions += cx.mccabe.function_count;
+
+            hk_agg.total_modules += cx.henry_kafura.total_modules;
+            hk_agg.total_fan_in += cx.henry_kafura.total_fan_in;
+            hk_agg.total_fan_out += cx.henry_kafura.total_fan_out;
+            hk_agg.total_information_flow += cx.henry_kafura.total_information_flow;
         }
     }
 
@@ -297,11 +303,13 @@ pub fn run(paths: &[PathBuf], filter: &LanguageFilter, opts: &RunOptions) -> Rep
     let llm_tokens = Some(token_count);
     #[cfg(not(feature = "tokens"))]
     let llm_tokens = None;
+    let henry_kafura = (hk_agg.total_modules > 0).then_some(hk_agg);
     Report::from_data(
         counts,
         halstead_agg,
         mccabe_agg,
         nodes_agg,
+        henry_kafura,
         perf,
         llm_tokens,
         cache_hits,

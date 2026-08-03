@@ -30,7 +30,7 @@ pub struct Args {
 
     #[arg(
         long,
-        help = "Show detailed complexity and schedule metrics (default is concise)"
+        help = "Show detailed Halstead/McCabe/Henry-Kafura metrics (default is concise)"
     )]
     pub full: bool,
 

@@ -83,7 +83,8 @@ of years).
 Output is concise by default: per-language SLOC, total code/comment lines,
 token counts, Halstead time-to-implement, average cyclomatic complexity,
 the schedule table, and a performance summary (GB/s, files/s, declarations/s,
-total runtime).
+total runtime). `--full` adds the detailed Halstead, McCabe, and Henry-Kafura
+(information flow) metric breakdowns.
 
 When stdout is a terminal, each language is shown in its GitHub logo colour
 (from `ozh/github-colors`; unique in both hex and the 256-colour palette,

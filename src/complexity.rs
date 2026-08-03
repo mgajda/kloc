@@ -1,5 +1,6 @@
 use crate::language::LanguageSpec;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use tree_sitter::Node;
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct HalsteadMetrics {
@@ -483,18 +484,211 @@ pub fn analyze(source: &[u8], spec: &LanguageSpec) -> ComplexityResult {
         average_cyclomatic: avg_cyclomatic,
     };
 
-    let hk = HenryKafuraMetrics {
-        total_modules: 0,
-        total_fan_in: 0,
-        total_fan_out: 0,
-        total_information_flow: 0.0,
-    };
+    let hk = analyze_henry_kafura(&root, source);
 
     ComplexityResult {
         halstead,
         mccabe,
         henry_kafura: hk,
     }
+}
+
+/// Henry–Kafura information-flow metrics (Henry & Kafura, 1981), computed
+/// per module (function) from the file's call graph:
+///
+/// - fan-out: distinct functions a module calls.
+/// - fan-in: distinct modules that call a module.
+/// - information flow per module: (fan-in × fan-out)².
+///
+/// Modules are functions with a resolvable name; anonymous functions and
+/// calls to names not defined in the file contribute only to fan-out.
+fn analyze_henry_kafura(root: &Node, source: &[u8]) -> HenryKafuraMetrics {
+    let mut modules: Vec<FlowModule> = Vec::new();
+    let mut calls: Vec<(String, usize)> = Vec::new();
+
+    // Collect function definitions and calls in one iterative walk.
+    let mut stack = vec![*root];
+    while let Some(node) = stack.pop() {
+        if node.is_named() {
+            let kind = node.kind();
+            if kind_is_function(kind) {
+                if let Some(name) = function_name(&node, source) {
+                    modules.push(FlowModule {
+                        name,
+                        start: node.start_byte(),
+                        end: node.end_byte(),
+                    });
+                }
+            } else if kind == "call_expression"
+                && let Some(callee) = callee_name(&node, source)
+            {
+                calls.push((callee, node.start_byte()));
+            }
+        }
+        let mut child = node.walk();
+        if child.goto_first_child() {
+            loop {
+                stack.push(child.node());
+                if !child.goto_next_sibling() {
+                    break;
+                }
+            }
+        }
+    }
+
+    modules.sort_by_key(|m| m.start);
+
+    let mut fan_out: Vec<BTreeSet<String>> = vec![BTreeSet::new(); modules.len()];
+    let mut callers: Vec<BTreeSet<usize>> = vec![BTreeSet::new(); modules.len()];
+    let mut by_name: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+    for (i, m) in modules.iter().enumerate() {
+        by_name.entry(m.name.clone()).or_default().push(i);
+    }
+    for (callee, byte) in &calls {
+        let Some(owner) = innermost_module(&modules, *byte) else {
+            continue;
+        };
+        fan_out[owner].insert(callee.clone());
+        if let Some(targets) = by_name.get(callee) {
+            for &t in targets {
+                callers[t].insert(owner);
+            }
+        }
+    }
+
+    let total_modules = modules.len() as u64;
+    let mut total_fan_in = 0u64;
+    let mut total_fan_out = 0u64;
+    let mut total_information_flow = 0.0;
+    for i in 0..modules.len() {
+        let fi = callers[i].len() as u64;
+        let fo = fan_out[i].len() as u64;
+        total_fan_in += fi;
+        total_fan_out += fo;
+        total_information_flow += (fi as f64 * fo as f64).powi(2);
+    }
+    HenryKafuraMetrics {
+        total_modules,
+        total_fan_in,
+        total_fan_out,
+        total_information_flow,
+    }
+}
+
+/// The name of a function node: its `name` field (Rust, Python, JS, ...), or
+/// the identifier inside the `declarator` field (C family). `None` for
+/// anonymous functions.
+fn function_name(node: &Node, source: &[u8]) -> Option<String> {
+    if let Some(n) = node.child_by_field_name("name")
+        && let Ok(text) = n.utf8_text(source)
+    {
+        let text = text.trim();
+        if !text.is_empty() {
+            return Some(text.to_string());
+        }
+    }
+    if let Some(d) = node.child_by_field_name("declarator")
+        && let Some(id) = find_identifier(d)
+        && let Ok(text) = id.utf8_text(source)
+    {
+        let text = text.trim();
+        if !text.is_empty() {
+            return Some(text.to_string());
+        }
+    }
+    None
+}
+
+/// The callee name of a `call_expression`: the `function` field (or first
+/// child). Method calls `obj.method(...)` reduce to the last segment.
+fn callee_name(node: &Node, source: &[u8]) -> Option<String> {
+    let callee = node
+        .child_by_field_name("function")
+        .or_else(|| node.child(0))?;
+    let text = callee.utf8_text(source).ok()?;
+    let name = text.trim().rsplit('.').next().unwrap_or(text.trim());
+    if name.is_empty() {
+        None
+    } else {
+        Some(name.to_string())
+    }
+}
+
+/// One module in the Henry–Kafura call graph: a named function and its byte
+/// range. Ranges nest, never partially overlap.
+struct FlowModule {
+    name: String,
+    start: usize,
+    end: usize,
+}
+
+/// The innermost module whose `[start, end)` range contains `byte`.
+/// `modules` is sorted by start; nested modules nest, so the first containing
+/// one found scanning back from the last start ≤ byte is the innermost.
+fn innermost_module(modules: &[FlowModule], byte: usize) -> Option<usize> {
+    let mut lo = 0;
+    let mut hi = modules.len();
+    while lo < hi {
+        let mid = (lo + hi) / 2;
+        if modules[mid].start <= byte {
+            lo = mid + 1;
+        } else {
+            hi = mid;
+        }
+    }
+    (0..lo).rev().find(|&i| modules[i].end >= byte)
+}
+
+/// The first identifier-like descendant of `node` (declarator chain in C).
+fn find_identifier(node: Node) -> Option<Node> {
+    if kind_is_identifier(node.kind()) {
+        return Some(node);
+    }
+    let mut stack = vec![node];
+    while let Some(n) = stack.pop() {
+        let mut child = n.walk();
+        if child.goto_first_child() {
+            loop {
+                if kind_is_identifier(child.node().kind()) {
+                    return Some(child.node());
+                }
+                stack.push(child.node());
+                if !child.goto_next_sibling() {
+                    break;
+                }
+            }
+        }
+    }
+    None
+}
+
+fn kind_is_identifier(kind: &str) -> bool {
+    matches!(
+        kind,
+        "identifier"
+            | "variable_name"
+            | "type_identifier"
+            | "field_identifier"
+            | "shorthand_property_identifier"
+            | "shorthand_property_identifier_pattern"
+    )
+}
+
+/// Aggregate per-file Henry–Kafura metrics by summing the module totals.
+/// `None` when the input is empty.
+pub fn aggregate_henry_kafura<'a>(
+    metrics: impl IntoIterator<Item = &'a HenryKafuraMetrics>,
+) -> Option<HenryKafuraMetrics> {
+    let mut acc = HenryKafuraMetrics::default();
+    let mut any = false;
+    for m in metrics {
+        acc.total_modules += m.total_modules;
+        acc.total_fan_in += m.total_fan_in;
+        acc.total_fan_out += m.total_fan_out;
+        acc.total_information_flow += m.total_information_flow;
+        any = true;
+    }
+    if any { Some(acc) } else { None }
 }
 
 fn empty_result() -> ComplexityResult {
@@ -522,4 +716,64 @@ pub fn aggregate_halstead<'a>(
     }
     acc.derive();
     Some(acc)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::language::{LanguageCategory, LanguageSpec};
+    use tree_sitter::Language;
+
+    fn rust_spec() -> LanguageSpec {
+        LanguageSpec {
+            name: "test",
+            category: LanguageCategory::Programming,
+            subgroup: None,
+            extensions: &[],
+            shebangs: &[],
+            filenames: &[],
+            grammar_fn: || Language::new(tree_sitter_rust::LANGUAGE),
+            comment_kinds: &["line_comment", "block_comment"],
+        }
+    }
+
+    fn parse(source: &[u8]) -> tree_sitter::Tree {
+        let spec = rust_spec();
+        let mut parser = tree_sitter::Parser::new();
+        parser.set_language(&spec.grammar()).unwrap();
+        parser.parse(source, None).unwrap()
+    }
+
+    #[test]
+    fn henry_kafura_counts_call_graph() {
+        let src = b"fn outer() {\n    helper();\n    helper();\n    leaf();\n}\nfn helper() {\n    leaf();\n}\nfn leaf() {}\n";
+        let tree = parse(src);
+        let hk = analyze_henry_kafura(&tree.root_node(), src);
+        assert_eq!(hk.total_modules, 3);
+        // outer: fi=0, fo={helper,leaf}=2; helper: fi={outer}=1, fo={leaf}=1;
+        // leaf: fi={outer,helper}=2, fo={}=0. IF = 0+1+0 = 1.
+        assert_eq!(hk.total_fan_in, 3);
+        assert_eq!(hk.total_fan_out, 3);
+        assert_eq!(hk.total_information_flow, 1.0);
+    }
+
+    #[test]
+    fn henry_kafura_external_calls_count_only_fan_out() {
+        let src = b"fn caller() {\n    external_thing();\n}\n";
+        let tree = parse(src);
+        let hk = analyze_henry_kafura(&tree.root_node(), src);
+        // `caller` calls `external_thing`, which is not defined here: it
+        // contributes to caller's fan-out but has no fan-in module.
+        assert_eq!(hk.total_modules, 1);
+        assert_eq!(hk.total_fan_in, 0);
+        assert_eq!(hk.total_fan_out, 1);
+        assert_eq!(hk.total_information_flow, 0.0);
+    }
+
+    #[test]
+    fn henry_kafura_empty_parse_is_zero() {
+        let hk = analyze_henry_kafura(&parse(b"").root_node(), b"");
+        assert_eq!(hk.total_modules, 0);
+        assert_eq!(hk.total_information_flow, 0.0);
+    }
 }

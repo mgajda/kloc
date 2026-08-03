@@ -620,6 +620,19 @@ fn format_text(
                 "Average per function", m.average_cyclomatic
             ));
         }
+        if let Some(ref hk) = report.henry_kafura {
+            out.push_str("\n--- Henry-Kafura information flow ---\n\n");
+            out.push_str(&format!(
+                "{:44}= {}\n",
+                "Modules (functions)", hk.total_modules
+            ));
+            out.push_str(&format!("{:44}= {}\n", "Total fan-in", hk.total_fan_in));
+            out.push_str(&format!("{:44}= {}\n", "Total fan-out", hk.total_fan_out));
+            out.push_str(&format!(
+                "{:44}= {:.0}\n",
+                "Total information flow (sum of (fi*fo)^2)", hk.total_information_flow
+            ));
+        }
     }
 
     out.push('\n');
