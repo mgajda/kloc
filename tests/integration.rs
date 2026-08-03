@@ -1,5 +1,5 @@
-use std::path::{Path, PathBuf};
 use std::fs;
+use std::path::{Path, PathBuf};
 
 fn write_file(dir: &Path, name: &str, content: &[u8]) {
     fs::write(dir.join(name), content).unwrap();
@@ -18,7 +18,8 @@ fn assert_contains(report: &str, lang: &str, sloc: u64) {
     assert!(
         report.contains(&pattern),
         "Expected '{}' in report.\nFull report:\n{}",
-        pattern.trim(), report
+        pattern.trim(),
+        report
     );
 }
 
@@ -51,20 +52,38 @@ fn test_ai_config() -> kloc::ai_config::AiConfig {
 fn run_and_get_text(paths: &[PathBuf]) -> String {
     let filter = default_filter();
     let report = kloc::run(paths, &filter, &test_opts());
-    kloc::output::format(&report, &kloc::output::OutputFormat::Text, true, test_colors(), &test_ai_config(), None)
+    kloc::output::format(
+        &report,
+        &kloc::output::OutputFormat::Text,
+        true,
+        test_colors(),
+        &test_ai_config(),
+        None,
+    )
 }
 
 fn run_and_get_json(paths: &[PathBuf]) -> serde_json::Value {
     let filter = default_filter();
     let report = kloc::run(paths, &filter, &test_opts());
-    let json = kloc::output::format(&report, &kloc::output::OutputFormat::Json, true, test_colors(), &test_ai_config(), None);
+    let json = kloc::output::format(
+        &report,
+        &kloc::output::OutputFormat::Json,
+        true,
+        test_colors(),
+        &test_ai_config(),
+        None,
+    );
     serde_json::from_str(&json).unwrap()
 }
 
 #[test]
 fn integration_single_language_rust() {
     let dir = test_dir("single_rust");
-    write_file(&dir, "main.rs", b"fn main() {\n    println!(\"hello\");\n}\n");
+    write_file(
+        &dir,
+        "main.rs",
+        b"fn main() {\n    println!(\"hello\");\n}\n",
+    );
 
     let text = run_and_get_text(&[dir]);
     assert_contains(&text, "Rust", 3);
@@ -78,7 +97,11 @@ fn has_language(name: &str) -> bool {
 #[test]
 fn integration_two_languages_rust_and_c() {
     let dir = test_dir("two_langs");
-    write_file(&dir, "main.rs", b"fn main() {\n    println!(\"hello\");\n}\n");
+    write_file(
+        &dir,
+        "main.rs",
+        b"fn main() {\n    println!(\"hello\");\n}\n",
+    );
     write_file(&dir, "helper.c", b"int helper() {\n    return 42;\n}\n");
 
     let text = run_and_get_text(&[dir]);
@@ -110,9 +133,17 @@ fn integration_multi_language_detailed() {
     }
     let dir = test_dir("multi_detailed");
     write_file(&dir, "main.rs", b"fn main() {\n    println!(\"hi\");\n}\n");
-    write_file(&dir, "Main.hs", b"module Main where\n\nmain :: IO ()\nmain = putStrLn \"hi\"\n");
+    write_file(
+        &dir,
+        "Main.hs",
+        b"module Main where\n\nmain :: IO ()\nmain = putStrLn \"hi\"\n",
+    );
     write_file(&dir, "hello.go", b"package main\nfunc main() {}\n");
-    write_file(&dir, "Main.java", b"public class Main {\n    public static void main(String[] args) {}\n}\n");
+    write_file(
+        &dir,
+        "Main.java",
+        b"public class Main {\n    public static void main(String[] args) {}\n}\n",
+    );
 
     let json = run_and_get_json(&[dir]);
     let langs = json["by_language"].as_array().unwrap();
@@ -132,12 +163,17 @@ fn integration_multi_language_detailed() {
     assert_eq!(map.get("Java"), Some(&(3, 1)));
 
     let sum: u64 = map.values().map(|(s, _)| s).sum();
-    assert_eq!(total_sloc, sum, "total should match sum of per-language SLOC");
+    assert_eq!(
+        total_sloc, sum,
+        "total should match sum of per-language SLOC"
+    );
 }
 
 #[test]
 fn integration_with_makefile() {
-    if !has_language("Make") { return; }
+    if !has_language("Make") {
+        return;
+    }
     let dir = test_dir("with_makefile");
     write_file(&dir, "Makefile", b"all:\n\techo hello\n");
     write_file(&dir, "main.c", b"int main() { return 0; }\n");
@@ -175,19 +211,36 @@ fn integration_multiple_directories() {
 
 #[test]
 fn integration_html_and_css() {
-    if !has_language("HTML") || !has_language("CSS") { return; }
+    if !has_language("HTML") || !has_language("CSS") {
+        return;
+    }
     let dir = test_dir("web_mix");
-    write_file(&dir, "index.html", b"<html>\n<body>\n<p>hi</p>\n</body>\n</html>\n");
+    write_file(
+        &dir,
+        "index.html",
+        b"<html>\n<body>\n<p>hi</p>\n</body>\n</html>\n",
+    );
     write_file(&dir, "style.css", b"body {\n    color: red;\n}\n");
     write_file(&dir, "app.js", b"console.log('hi');\n");
 
     let json = run_and_get_json(&[dir]);
     let mut map = std::collections::HashMap::new();
     for entry in json["by_language"].as_array().unwrap() {
-        map.insert(entry["name"].as_str().unwrap().to_string(), entry["sloc"].as_u64().unwrap());
+        map.insert(
+            entry["name"].as_str().unwrap().to_string(),
+            entry["sloc"].as_u64().unwrap(),
+        );
     }
-    assert_eq!(map.get("HTML"), Some(&5), "HTML should be detected if feature enabled");
-    assert_eq!(map.get("CSS"), Some(&3), "CSS should be detected if feature enabled");
+    assert_eq!(
+        map.get("HTML"),
+        Some(&5),
+        "HTML should be detected if feature enabled"
+    );
+    assert_eq!(
+        map.get("CSS"),
+        Some(&3),
+        "CSS should be detected if feature enabled"
+    );
     assert_eq!(map.get("JavaScript"), Some(&1), "JS should be detected");
 }
 
@@ -238,7 +291,9 @@ fn integration_filter_only_programming() {
 
 #[test]
 fn integration_filter_only_machine() {
-    if !has_language("JSON") { return; }
+    if !has_language("JSON") {
+        return;
+    }
     let dir = test_dir("filter_machine");
     write_file(&dir, "main.rs", b"fn main() {}\n");
     write_file(&dir, "data.json", b"{\"key\": 1}\n");
@@ -251,8 +306,14 @@ fn integration_filter_only_machine() {
     };
     let report = kloc::run(std::slice::from_ref(&dir), &filter, &test_opts());
     assert!(report.total_sloc > 0, "machine languages should have sloc");
-    assert!(report.by_language.iter().any(|l| l.name == "JSON"), "JSON should be included");
-    assert!(report.by_language.iter().all(|l| l.name != "Rust"), "Rust should be excluded");
+    assert!(
+        report.by_language.iter().any(|l| l.name == "JSON"),
+        "JSON should be included"
+    );
+    assert!(
+        report.by_language.iter().all(|l| l.name != "Rust"),
+        "Rust should be excluded"
+    );
 }
 
 #[test]
@@ -269,7 +330,10 @@ fn integration_filter_only_specific_languages() {
         only_machine: false,
     };
     let report = kloc::run(std::slice::from_ref(&dir), &filter, &test_opts());
-    assert_eq!(report.total_sloc, 2, "only Python should be counted (2 sloc)");
+    assert_eq!(
+        report.total_sloc, 2,
+        "only Python should be counted (2 sloc)"
+    );
     assert_eq!(report.by_language.len(), 1);
     assert_eq!(report.by_language[0].name, "Python");
 }
@@ -310,17 +374,25 @@ fn integration_filter_only_programming_and_only() {
 }
 
 #[test]
-fn integration_json_parseable() {    let dir = test_dir("json_parse");
+fn integration_json_parseable() {
+    let dir = test_dir("json_parse");
     write_file(&dir, "main.rs", b"fn main() {}\n");
 
     let json_str = {
         let filter = default_filter();
         let report = kloc::run(std::slice::from_ref(&dir), &filter, &test_opts());
-        kloc::output::format(&report, &kloc::output::OutputFormat::Json, true, test_colors(), &test_ai_config(), None)
+        kloc::output::format(
+            &report,
+            &kloc::output::OutputFormat::Json,
+            true,
+            test_colors(),
+            &test_ai_config(),
+            None,
+        )
     };
 
-    let parsed: serde_json::Value = serde_json::from_str(&json_str)
-        .expect("JSON output must be valid");
+    let parsed: serde_json::Value =
+        serde_json::from_str(&json_str).expect("JSON output must be valid");
     assert!(parsed["by_language"].is_array());
     assert!(parsed["total_sloc"].is_u64());
     assert!(parsed["total_files"].is_u64());
@@ -385,9 +457,9 @@ fn integration_ignore_custom_and_no_ignore() {
 // is seeded from system entropy each run and the chosen seed is printed, so a
 // failure can be reproduced deterministically with KLOK_TEST_SEED=<seed>.
 
+use rand::Rng;
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
-use rand::Rng;
 
 /// Seed the RNG: honour `KLOK_TEST_SEED` if set, else derive from wall-clock
 /// entropy. Prints the chosen seed so failures are reproducible.
@@ -395,8 +467,10 @@ fn test_rng() -> (u64, rand::rngs::StdRng) {
     let seed: u64 = match std::env::var("KLOK_TEST_SEED") {
         Ok(s) => s.parse().expect("KLOK_TEST_SEED must be an integer"),
         Err(_) => {
-            let nanos = SystemTime::now().duration_since(UNIX_EPOCH)
-                .expect("clock before epoch").as_nanos();
+            let nanos = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("clock before epoch")
+                .as_nanos();
             (nanos ^ (nanos >> 32)) as u64
         }
     };
@@ -414,13 +488,33 @@ fn gen_expr(rng: &mut impl rand::Rng, depth: u32) -> String {
     let name = |i: u8| format!("v{i}");
     match rng.gen_range(0..8) {
         0 => rng.gen_range(0..1000u32).to_string(),
-        1 => format!("{} + {}", gen_expr(rng, depth - 1), gen_expr(rng, depth - 1)),
-        2 => format!("{} * {}", gen_expr(rng, depth - 1), gen_expr(rng, depth - 1)),
-        3 => format!("{} - {}", gen_expr(rng, depth - 1), gen_expr(rng, depth - 1)),
+        1 => format!(
+            "{} + {}",
+            gen_expr(rng, depth - 1),
+            gen_expr(rng, depth - 1)
+        ),
+        2 => format!(
+            "{} * {}",
+            gen_expr(rng, depth - 1),
+            gen_expr(rng, depth - 1)
+        ),
+        3 => format!(
+            "{} - {}",
+            gen_expr(rng, depth - 1),
+            gen_expr(rng, depth - 1)
+        ),
         4 => name(rng.gen_range(0..5)),
-        5 => format!("{}.wrapping_add({})", name(rng.gen_range(0..5)), gen_expr(rng, depth - 1)),
-        6 => format!("if {} > 0 {{ {} }} else {{ {} }}",
-            gen_expr(rng, depth - 1), gen_expr(rng, depth - 1), gen_expr(rng, depth - 1)),
+        5 => format!(
+            "{}.wrapping_add({})",
+            name(rng.gen_range(0..5)),
+            gen_expr(rng, depth - 1)
+        ),
+        6 => format!(
+            "if {} > 0 {{ {} }} else {{ {} }}",
+            gen_expr(rng, depth - 1),
+            gen_expr(rng, depth - 1),
+            gen_expr(rng, depth - 1)
+        ),
         _ => format!("({})", gen_expr(rng, depth - 1)),
     }
 }
@@ -431,12 +525,32 @@ fn gen_fn(rng: &mut impl rand::Rng, idx: usize) -> String {
     let n = rng.gen_range(1..4);
     for _ in 0..n {
         match rng.gen_range(0..5) {
-            0 => body.push_str(&format!("    let v{} = {};\n", rng.gen_range(0..5), gen_expr(rng, 2))),
-            1 => body.push_str(&format!("    println!(\"{}\", {});\n", "x", gen_expr(rng, 2))),
-            2 => body.push_str(&format!("    if {} < 10 {{ {}; }}\n", gen_expr(rng, 1), gen_expr(rng, 1))),
-            3 => body.push_str(&format!("    for v{} in 0..{} {{ {}; }}\n",
-                rng.gen_range(0..5), rng.gen_range(1..20), gen_expr(rng, 1))),
-            _ => body.push_str(&format!("    let v{} = v{} + 1;\n", rng.gen_range(0..5), rng.gen_range(0..5))),
+            0 => body.push_str(&format!(
+                "    let v{} = {};\n",
+                rng.gen_range(0..5),
+                gen_expr(rng, 2)
+            )),
+            1 => body.push_str(&format!(
+                "    println!(\"{}\", {});\n",
+                "x",
+                gen_expr(rng, 2)
+            )),
+            2 => body.push_str(&format!(
+                "    if {} < 10 {{ {}; }}\n",
+                gen_expr(rng, 1),
+                gen_expr(rng, 1)
+            )),
+            3 => body.push_str(&format!(
+                "    for v{} in 0..{} {{ {}; }}\n",
+                rng.gen_range(0..5),
+                rng.gen_range(1..20),
+                gen_expr(rng, 1)
+            )),
+            _ => body.push_str(&format!(
+                "    let v{} = v{} + 1;\n",
+                rng.gen_range(0..5),
+                rng.gen_range(0..5)
+            )),
         }
     }
     format!("pub fn f{idx}() -> u32 {{\n{body}    1\n}}\n")
@@ -449,29 +563,43 @@ fn gen_rust(rng: &mut impl rand::Rng, n: usize) -> String {
 
 /// Initialise a git repo in `dir` (quietly, using a local identity).
 fn git_init(dir: &std::path::Path) {
-    Command::new("git").args(["init", "-q"]).current_dir(dir).output().unwrap();
+    Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(dir)
+        .output()
+        .unwrap();
     Command::new("git")
         .args(["config", "user.email", "test@example.com"])
-        .current_dir(dir).output().unwrap();
+        .current_dir(dir)
+        .output()
+        .unwrap();
     Command::new("git")
         .args(["config", "user.name", "test"])
-        .current_dir(dir).output().unwrap();
-    Command::new("git").args(["add", "-A"]).current_dir(dir).output().unwrap();
+        .current_dir(dir)
+        .output()
+        .unwrap();
+    Command::new("git")
+        .args(["add", "-A"])
+        .current_dir(dir)
+        .output()
+        .unwrap();
 }
 
 fn git_commit(dir: &std::path::Path, msg: &str) {
     Command::new("git")
         .args(["commit", "-q", "-m", msg])
-        .current_dir(dir).output().unwrap();
+        .current_dir(dir)
+        .output()
+        .unwrap();
 }
 
 /// Run history analysis and return the (report, formatted text).
 fn run_history(dir: &std::path::Path) -> (kloc::history::HistoryReport, String) {
     let filter = default_filter();
     let cfg = kloc::ai_config::default_config();
-    let report = kloc::history::run_history(
-        &[dir.to_path_buf()], &filter, None, None, &cfg, None, false,
-    ).expect("history should run");
+    let report =
+        kloc::history::run_history(&[dir.to_path_buf()], &filter, None, None, &cfg, None, false)
+            .expect("history should run");
     let text = kloc::output::format_history(&report, test_colors(), &test_ai_config(), None);
     (report, text)
 }
@@ -486,7 +614,9 @@ fn run_source(dir: &std::path::Path) -> kloc::Report {
 /// code, history metrics must match the source-tree metrics for the same file.
 #[test]
 fn integration_history_single_file_creation_matches_source() {
-    if Command::new("git").arg("--version").output().is_err() { return; }
+    if Command::new("git").arg("--version").output().is_err() {
+        return;
+    }
     let (seed, mut rng) = test_rng();
     let n_fn = rng.gen_range(3..12);
     let code = gen_rust(&mut rng, n_fn);
@@ -500,11 +630,22 @@ fn integration_history_single_file_creation_matches_source() {
     let (hist, hist_text) = run_history(&dir);
 
     assert_eq!(hist.commits, 1, "one commit (seed={seed})");
-    assert!(hist_text.contains("Schedule (from diffs)"), "history must show schedule table (seed={seed})");
-    assert!(hist_text.contains("Halstead"), "history must show Halstead column (seed={seed})");
-    assert!(hist.halstead.is_some(), "history must compute Halstead (seed={seed})");
-    assert_eq!(hist.total_added_lines, src.total_sloc,
-        "history added LOC must equal source SLOC (seed={seed})");
+    assert!(
+        hist_text.contains("Schedule (from diffs)"),
+        "history must show schedule table (seed={seed})"
+    );
+    assert!(
+        hist_text.contains("Halstead"),
+        "history must show Halstead column (seed={seed})"
+    );
+    assert!(
+        hist.halstead.is_some(),
+        "history must compute Halstead (seed={seed})"
+    );
+    assert_eq!(
+        hist.total_added_lines, src.total_sloc,
+        "history added LOC must equal source SLOC (seed={seed})"
+    );
     assert_eq!(hist.total_removed_lines, 0, "no removals (seed={seed})");
 }
 
@@ -513,7 +654,9 @@ fn integration_history_single_file_creation_matches_source() {
 /// metrics.
 #[test]
 fn integration_history_single_function_additions_match_source() {
-    if Command::new("git").arg("--version").output().is_err() { return; }
+    if Command::new("git").arg("--version").output().is_err() {
+        return;
+    }
     let (seed, mut rng) = test_rng();
     let n_fns = rng.gen_range(3..8);
 
@@ -528,7 +671,11 @@ fn integration_history_single_function_additions_match_source() {
         let content = std::fs::read_to_string(dir.join("lib.rs")).unwrap();
         let extra = gen_fn(&mut rng, i as usize);
         std::fs::write(dir.join("lib.rs"), content + &extra).unwrap();
-        Command::new("git").args(["add", "lib.rs"]).current_dir(&dir).output().unwrap();
+        Command::new("git")
+            .args(["add", "lib.rs"])
+            .current_dir(&dir)
+            .output()
+            .unwrap();
         git_commit(&dir, &format!("add fn f{i}"));
     }
 
@@ -536,11 +683,19 @@ fn integration_history_single_function_additions_match_source() {
     let (hist, _hist_text) = run_history(&dir);
 
     assert_eq!(hist.commits, n_fns, "one commit per function (seed={seed})");
-    assert_eq!(hist.total_added_lines, src.total_sloc,
-        "history added LOC must equal final source SLOC, no removals (seed={seed})");
+    assert_eq!(
+        hist.total_added_lines, src.total_sloc,
+        "history added LOC must equal final source SLOC, no removals (seed={seed})"
+    );
     assert_eq!(hist.total_removed_lines, 0, "no removals (seed={seed})");
-    assert!(hist.halstead.is_some(), "Halstead must be computed (seed={seed})");
-    assert!(src.nodes.leaf_tokens > 0, "source must have leaf tokens (seed={seed})");
+    assert!(
+        hist.halstead.is_some(),
+        "Halstead must be computed (seed={seed})"
+    );
+    assert!(
+        src.nodes.leaf_tokens > 0,
+        "source must have leaf tokens (seed={seed})"
+    );
 }
 
 /// Deeply nested (but tiny) source must complete without overflowing the stack
@@ -566,8 +721,14 @@ fn integration_deep_nesting_completes_and_counts() {
     write_file(&dir, "main.rs", code.as_bytes());
     let json = run_and_get_json(&[dir]);
     // The regression check is completing at all (the old code crashed here).
-    assert!(json["total_sloc"].as_u64().unwrap() > 0, "deeply nested source must parse to non-zero SLOC");
-    assert!(json["total_files"].as_u64().unwrap() == 1, "exactly one file");
+    assert!(
+        json["total_sloc"].as_u64().unwrap() > 0,
+        "deeply nested source must parse to non-zero SLOC"
+    );
+    assert!(
+        json["total_files"].as_u64().unwrap() == 1,
+        "exactly one file"
+    );
 }
 
 /// Very wide (many top-level children) source must count correctly. The
@@ -598,4 +759,3 @@ fn integration_wide_nesting_counts_every_function() {
         "each function contributes named nodes"
     );
 }
-

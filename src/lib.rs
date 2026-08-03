@@ -1,28 +1,28 @@
+use rayon::prelude::*;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::time::Instant;
-use rayon::prelude::*;
 
-pub mod language;
+pub mod ai_config;
+pub mod cache;
+pub mod cli;
+pub mod color;
+pub mod complexity;
 pub mod counter;
-pub mod walker;
+pub mod history;
+pub mod language;
+pub mod log;
 pub mod output;
 pub mod report;
-pub mod cli;
-pub mod complexity;
 pub mod schedule;
-pub mod cache;
-pub mod color;
-pub mod history;
-pub mod ai_config;
-pub mod log;
+pub mod walker;
 
 #[cfg(feature = "tokens")]
 pub mod tokens;
 
-pub use report::Report;
-pub use language::{LanguageCategory, LanguageSubgroup};
 use language::LanguageSpec;
+pub use language::{LanguageCategory, LanguageSubgroup};
+pub use report::Report;
 
 fn normalize_name(s: &str) -> String {
     s.replace('-', "_").to_lowercase()
@@ -44,7 +44,8 @@ impl LanguageFilter {
             return false;
         }
         if !self.only.is_empty() {
-            let only_normalized: Vec<String> = self.only.iter().map(|s| normalize_name(s)).collect();
+            let only_normalized: Vec<String> =
+                self.only.iter().map(|s| normalize_name(s)).collect();
             let ok = only_normalized.iter().any(|o| {
                 o == &normalize_name(spec.name)
                     || o == spec.category_name()
@@ -55,7 +56,8 @@ impl LanguageFilter {
             }
         }
         if !self.exclude.is_empty() {
-            let exclude_normalized: Vec<String> = self.exclude.iter().map(|s| normalize_name(s)).collect();
+            let exclude_normalized: Vec<String> =
+                self.exclude.iter().map(|s| normalize_name(s)).collect();
             if exclude_normalized.iter().any(|e| {
                 e == &normalize_name(spec.name)
                     || e == spec.category_name()
@@ -153,10 +155,12 @@ pub fn run(paths: &[PathBuf], filter: &LanguageFilter, opts: &RunOptions) -> Rep
             };
             let source = std::fs::read(&entry.path).ok()?;
             let size = source.len() as u64;
-            let mtime_ns = std::fs::metadata(&entry.path).ok()
+            let mtime_ns = std::fs::metadata(&entry.path)
+                .ok()
                 .and_then(|m| m.modified().ok())
                 .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                .map(|d| d.as_nanos() as u64).unwrap_or(0);
+                .map(|d| d.as_nanos() as u64)
+                .unwrap_or(0);
 
             let count = counter::count(&source, entry.language);
 
@@ -168,7 +172,9 @@ pub fn run(paths: &[PathBuf], filter: &LanguageFilter, opts: &RunOptions) -> Rep
                     opts.cache.put(&entry.path, size, mtime_ns, &count, &cx);
                     Some(cx)
                 }
-            } else { None };
+            } else {
+                None
+            };
 
             let llm_tokens = {
                 #[cfg(feature = "tokens")]
@@ -178,7 +184,9 @@ pub fn run(paths: &[PathBuf], filter: &LanguageFilter, opts: &RunOptions) -> Rep
                     TokenCounts::default()
                 }
                 #[cfg(not(feature = "tokens"))]
-                { TokenCounts::default() }
+                {
+                    TokenCounts::default()
+                }
             };
 
             if let Some(t0) = dbg_start {
@@ -194,7 +202,9 @@ pub fn run(paths: &[PathBuf], filter: &LanguageFilter, opts: &RunOptions) -> Rep
                 name: entry.language.name.to_string(),
                 bytes: size,
                 mtime_ns,
-                count, cx, llm_tokens,
+                count,
+                cx,
+                llm_tokens,
             })
         })
         .collect();
@@ -221,10 +231,14 @@ pub fn run(paths: &[PathBuf], filter: &LanguageFilter, opts: &RunOptions) -> Rep
         nodes_agg.named_nodes += r.count.nodes.named_nodes;
         nodes_agg.leaf_tokens += r.count.nodes.leaf_tokens;
         let e = counts.entry(r.name.clone()).or_insert((0, 0, 0, 0, 0));
-        e.0 += r.count.sloc; e.1 += 1; e.2 += r.count.comments;
+        e.0 += r.count.sloc;
+        e.1 += 1;
+        e.2 += r.count.comments;
         e.3 += r.count.nodes.leaf_tokens;
         #[cfg(feature = "tokens")]
-        { e.4 += r.llm_tokens.claude_sonnet; }
+        {
+            e.4 += r.llm_tokens.claude_sonnet;
+        }
 
         if let Some(ref cx) = r.cx {
             let h = halstead_agg.entry(r.name.clone()).or_default();
@@ -251,16 +265,32 @@ pub fn run(paths: &[PathBuf], filter: &LanguageFilter, opts: &RunOptions) -> Rep
         bytes_parsed: total_bytes,
         files: total_files,
         functions: total_functions,
-        bytes_per_sec: if elapsed > 0.0 { total_bytes as f64 / elapsed } else { 0.0 },
-        files_per_sec: if elapsed > 0.0 { total_files as f64 / elapsed } else { 0.0 },
-        functions_per_sec: if elapsed > 0.0 { total_functions as f64 / elapsed } else { 0.0 },
+        bytes_per_sec: if elapsed > 0.0 {
+            total_bytes as f64 / elapsed
+        } else {
+            0.0
+        },
+        files_per_sec: if elapsed > 0.0 {
+            total_files as f64 / elapsed
+        } else {
+            0.0
+        },
+        functions_per_sec: if elapsed > 0.0 {
+            total_functions as f64 / elapsed
+        } else {
+            0.0
+        },
     };
 
     let (cache_hits, cache_misses) = opts.cache.stats();
 
     crate::info_log!(
         "analyzed {} files, {} bytes in {:.3} s (cache: {} hits, {} misses)",
-        total_files, total_bytes, elapsed, cache_hits, cache_misses
+        total_files,
+        total_bytes,
+        elapsed,
+        cache_hits,
+        cache_misses
     );
 
     #[cfg(feature = "tokens")]
@@ -268,8 +298,13 @@ pub fn run(paths: &[PathBuf], filter: &LanguageFilter, opts: &RunOptions) -> Rep
     #[cfg(not(feature = "tokens"))]
     let llm_tokens = None;
     Report::from_data(
-        counts, halstead_agg, mccabe_agg, nodes_agg,
-        perf, llm_tokens, cache_hits, cache_misses,
+        counts,
+        halstead_agg,
+        mccabe_agg,
+        nodes_agg,
+        perf,
+        llm_tokens,
+        cache_hits,
+        cache_misses,
     )
 }
-

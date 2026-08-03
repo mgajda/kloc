@@ -37,7 +37,11 @@ impl Rgb {
     /// text stays legible. Scales toward white by the given fraction.
     pub fn lightened(self, by: f64) -> Self {
         let mix = |c: u8| (c as f64 + (255.0 - c as f64) * by).round() as u8;
-        Rgb { r: mix(self.r), g: mix(self.g), b: mix(self.b) }
+        Rgb {
+            r: mix(self.r),
+            g: mix(self.g),
+            b: mix(self.b),
+        }
     }
 }
 
@@ -80,7 +84,13 @@ impl Colors {
 
     /// Foreground over a dark background (two-colour logo).
     pub fn on(&self, s: &str, fg: Rgb, bg: Rgb) -> String {
-        self.wrap(s, &format!("38;2;{};{};{};48;2;{};{};{}", fg.r, fg.g, fg.b, bg.r, bg.g, bg.b))
+        self.wrap(
+            s,
+            &format!(
+                "38;2;{};{};{};48;2;{};{};{}",
+                fg.r, fg.g, fg.b, bg.r, bg.g, bg.b
+            ),
+        )
     }
 
     /// Standard 8-colour dim/gray foreground.
@@ -124,7 +134,7 @@ pub fn logo_colors(name: &str) -> Option<LogoColors> {
         "Rust" => (0xDEA584, None),
         "C" => (0x555555, None),
         "C++" => (0xF34B7D, None),
-        "Python" => (0xFFD43B, Some(0x3572A5)),   // bright yellow fg on blue bg
+        "Python" => (0xFFD43B, Some(0x3572A5)), // bright yellow fg on blue bg
         "JavaScript" => (0xF1E05A, None),
         "Bash" => (0x89E051, None),
         "Haskell" => (0x5E5086, None),
@@ -201,7 +211,11 @@ pub fn logo_colors(name: &str) -> Option<LogoColors> {
 /// Test-only, used to recover the brand colour from a lightened foreground.
 #[cfg(test)]
 fn unlighten(c: Rgb, by: f64) -> u32 {
-    let f = |v: u8| ((v as f64 - 255.0 * by) / (1.0 - by)).round().clamp(0.0, 255.0) as u32;
+    let f = |v: u8| {
+        ((v as f64 - 255.0 * by) / (1.0 - by))
+            .round()
+            .clamp(0.0, 255.0) as u32
+    };
     (f(c.r) << 16) | (f(c.g) << 8) | f(c.b)
 }
 
@@ -224,13 +238,21 @@ mod tests {
             if !names.insert(lang.name) {
                 continue; // same language registered for multiple extensions
             }
-            let Some(lc) = logo_colors(lang.name) else { continue };
+            let Some(lc) = logo_colors(lang.name) else {
+                continue;
+            };
             // Recover the brand colour: the foreground is lightened 40%.
             let brand = unlighten(lc.fg, 0.40);
-            assert!(hexes.insert(brand), "duplicate brand hex for {}: {:?}", lang.name, brand);
+            assert!(
+                hexes.insert(brand),
+                "duplicate brand hex for {}: {:?}",
+                lang.name,
+                brand
+            );
         }
         assert_eq!(
-            hexes.len(), names.len(),
+            hexes.len(),
+            names.len(),
             "every unique language must have a distinct brand colour"
         );
     }
@@ -239,7 +261,11 @@ mod tests {
     fn test_every_registry_language_has_a_colour() {
         let reg = crate::language::registry();
         for lang in reg.languages() {
-            assert!(logo_colors(lang.name).is_some(), "no colour for {}", lang.name);
+            assert!(
+                logo_colors(lang.name).is_some(),
+                "no colour for {}",
+                lang.name
+            );
         }
     }
 
@@ -251,6 +277,9 @@ mod tests {
         // (lower luminance) so the text is legible. Per-channel comparison is
         // too strict for complementary colours (yellow fg on blue bg).
         let lum = |c: Rgb| 0.299 * c.r as f64 + 0.587 * c.g as f64 + 0.114 * c.b as f64;
-        assert!(lum(bg) < lum(python.fg), "background must be darker than foreground");
+        assert!(
+            lum(bg) < lum(python.fg),
+            "background must be darker than foreground"
+        );
     }
 }

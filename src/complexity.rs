@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use crate::language::LanguageSpec;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct HalsteadMetrics {
@@ -29,16 +29,31 @@ impl HalsteadMetrics {
     /// Recompute the derived metrics (volume, difficulty, effort, time, bugs)
     /// from the raw operator/operand counts. Call after accumulation.
     pub fn derive(&mut self) {
-        let n1 = self.distinct_operators; let n2 = self.distinct_operands;
-        let t1 = self.total_operators; let t2 = self.total_operands;
-        let n_vocab = n1 + n2; let n_len = t1 + t2;
-        let volume = if n_vocab > 0 { (n_len as f64) * (n_vocab as f64).log2() } else { 0.0 };
-        let diff = if n1 > 0 { (n1 as f64 / 2.0) * (t2 as f64 / n2.max(1) as f64) } else { 0.0 };
-        self.vocabulary = n_vocab; self.length = n_len;
+        let n1 = self.distinct_operators;
+        let n2 = self.distinct_operands;
+        let t1 = self.total_operators;
+        let t2 = self.total_operands;
+        let n_vocab = n1 + n2;
+        let n_len = t1 + t2;
+        let volume = if n_vocab > 0 {
+            (n_len as f64) * (n_vocab as f64).log2()
+        } else {
+            0.0
+        };
+        let diff = if n1 > 0 {
+            (n1 as f64 / 2.0) * (t2 as f64 / n2.max(1) as f64)
+        } else {
+            0.0
+        };
+        self.vocabulary = n_vocab;
+        self.length = n_len;
         self.estimated_length = if n1 > 0 && n2 > 0 {
             n1 as f64 * (n1 as f64).log2() + n2 as f64 * (n2 as f64).log2()
-        } else { 0.0 };
-        self.volume = volume; self.difficulty = diff;
+        } else {
+            0.0
+        };
+        self.volume = volume;
+        self.difficulty = diff;
         self.effort = diff * volume;
         self.time_seconds = self.effort / 18.0;
         self.bugs = volume / 3000.0;
@@ -74,67 +89,179 @@ pub struct ComplexityResult {
 }
 
 fn kind_is_function(kind: &str) -> bool {
-    matches!(kind, "function_definition" | "method_definition"
-        | "function_declaration" | "function_item"
-        | "function_signature_item" | "function"
-        | "method_declaration"
-        | "local_function_statement" | "anonymous_function"
-        | "lambda_expression" | "closure_expression"
-        | "arrow_function"
-        | "procedure_definition" | "procedure"
-        | "constructor_declaration" | "constructor"
-        | "getter" | "setter"
-        | "fn" | "fun")
+    matches!(
+        kind,
+        "function_definition"
+            | "method_definition"
+            | "function_declaration"
+            | "function_item"
+            | "function_signature_item"
+            | "function"
+            | "method_declaration"
+            | "local_function_statement"
+            | "anonymous_function"
+            | "lambda_expression"
+            | "closure_expression"
+            | "arrow_function"
+            | "procedure_definition"
+            | "procedure"
+            | "constructor_declaration"
+            | "constructor"
+            | "getter"
+            | "setter"
+            | "fn"
+            | "fun"
+    )
 }
 
 fn kind_is_decision(kind: &str) -> bool {
-    matches!(kind, "if_statement" | "if_expression"
-        | "while_statement" | "while_expression"
-        | "for_statement" | "for_expression"
-        | "for_in_statement" | "for_of_statement"
-        | "loop_expression" | "do_statement"
-        | "case_statement" | "switch_statement" | "switch_case"
-        | "match_expression" | "match_case"
-        | "catch_clause" | "catch"
-        | "conditional_expression" | "ternary_expression"
-        | "binary_expression" | "else_clause" | "else"
-        | "elif" | "except" | "except_handler")
+    matches!(
+        kind,
+        "if_statement"
+            | "if_expression"
+            | "while_statement"
+            | "while_expression"
+            | "for_statement"
+            | "for_expression"
+            | "for_in_statement"
+            | "for_of_statement"
+            | "loop_expression"
+            | "do_statement"
+            | "case_statement"
+            | "switch_statement"
+            | "switch_case"
+            | "match_expression"
+            | "match_case"
+            | "catch_clause"
+            | "catch"
+            | "conditional_expression"
+            | "ternary_expression"
+            | "binary_expression"
+            | "else_clause"
+            | "else"
+            | "elif"
+            | "except"
+            | "except_handler"
+    )
 }
 
 fn kind_is_binary_condition(kind: &str, text: &str) -> bool {
-    kind == "binary_expression"
-        && matches!(text, "&&" | "||" | "and" | "or")
+    kind == "binary_expression" && matches!(text, "&&" | "||" | "and" | "or")
 }
 
 fn kind_is_literal(kind: &str) -> bool {
-    matches!(kind, "string" | "string_literal" | "character" | "number"
-        | "integer_literal" | "float_literal" | "boolean" | "true" | "false"
-        | "null" | "nil" | "none" | "undefined"
-        | "comment" | "line_comment" | "block_comment"
-        | "hash_comment" | "shebang" | "ERROR" | "MISSING")
+    matches!(
+        kind,
+        "string"
+            | "string_literal"
+            | "character"
+            | "number"
+            | "integer_literal"
+            | "float_literal"
+            | "boolean"
+            | "true"
+            | "false"
+            | "null"
+            | "nil"
+            | "none"
+            | "undefined"
+            | "comment"
+            | "line_comment"
+            | "block_comment"
+            | "hash_comment"
+            | "shebang"
+            | "ERROR"
+            | "MISSING"
+    )
 }
 
 fn kind_is_punctuation(kind: &str) -> bool {
-    matches!(kind, "," | ";" | ":" | "." | "->" | "=>" | "::"
-        | "(" | ")" | "{" | "}" | "[" | "]"
-        | "template_literal" | "interpolation"
-        | "escape_sequence")
+    matches!(
+        kind,
+        "," | ";"
+            | ":"
+            | "."
+            | "->"
+            | "=>"
+            | "::"
+            | "("
+            | ")"
+            | "{"
+            | "}"
+            | "["
+            | "]"
+            | "template_literal"
+            | "interpolation"
+            | "escape_sequence"
+    )
 }
 
 fn kind_is_keyword(kind: &str) -> bool {
-    matches!(kind, "if" | "else" | "while" | "for" | "do" | "switch"
-        | "case" | "break" | "continue" | "return" | "throw"
-        | "try" | "catch" | "finally" | "new" | "delete"
-        | "typeof" | "instanceof" | "void" | "in" | "of"
-        | "let" | "const" | "var" | "fn" | "fun" | "func"
-        | "def" | "lambda" | "match" | "with" | "where"
-        | "class" | "struct" | "enum" | "trait" | "impl"
-        | "import" | "export" | "from" | "as" | "pub"
-        | "use" | "mod" | "type" | "interface" | "abstract"
-        | "static" | "virtual" | "override" | "async" | "await"
-        | "yield" | "self" | "super" | "this"
-        | "sizeof" | "alignof" | "offsetof" | "cast"
-        | "and" | "or" | "not")
+    matches!(
+        kind,
+        "if" | "else"
+            | "while"
+            | "for"
+            | "do"
+            | "switch"
+            | "case"
+            | "break"
+            | "continue"
+            | "return"
+            | "throw"
+            | "try"
+            | "catch"
+            | "finally"
+            | "new"
+            | "delete"
+            | "typeof"
+            | "instanceof"
+            | "void"
+            | "in"
+            | "of"
+            | "let"
+            | "const"
+            | "var"
+            | "fn"
+            | "fun"
+            | "func"
+            | "def"
+            | "lambda"
+            | "match"
+            | "with"
+            | "where"
+            | "class"
+            | "struct"
+            | "enum"
+            | "trait"
+            | "impl"
+            | "import"
+            | "export"
+            | "from"
+            | "as"
+            | "pub"
+            | "use"
+            | "mod"
+            | "type"
+            | "interface"
+            | "abstract"
+            | "static"
+            | "virtual"
+            | "override"
+            | "async"
+            | "await"
+            | "yield"
+            | "self"
+            | "super"
+            | "this"
+            | "sizeof"
+            | "alignof"
+            | "offsetof"
+            | "cast"
+            | "and"
+            | "or"
+            | "not"
+    )
 }
 
 fn classify(kind: &str, text: &str, parent_kind: &str) -> bool {
@@ -145,29 +272,57 @@ fn classify(kind: &str, text: &str, parent_kind: &str) -> bool {
         return false;
     }
     if kind_is_function(kind)
-        || matches!(parent_kind, "call_expression" | "binary_expression"
-            | "unary_expression" | "assignment_expression"
-            | "update_expression" | "type_cast_expression")
+        || matches!(
+            parent_kind,
+            "call_expression"
+                | "binary_expression"
+                | "unary_expression"
+                | "assignment_expression"
+                | "update_expression"
+                | "type_cast_expression"
+        )
     {
         return true;
     }
     if kind_is_decision(kind) || kind_is_binary_condition(kind, text) {
         return true;
     }
-    let is_identifier = matches!(kind, "identifier" | "variable_name"
-        | "type_identifier" | "field_identifier"
-        | "shorthand_property_identifier"
-        | "shorthand_property_identifier_pattern");
+    let is_identifier = matches!(
+        kind,
+        "identifier"
+            | "variable_name"
+            | "type_identifier"
+            | "field_identifier"
+            | "shorthand_property_identifier"
+            | "shorthand_property_identifier_pattern"
+    );
     if is_identifier {
-        return matches!(parent_kind, "call_expression" | "function_definition"
-            | "method_definition" | "function_declaration"
-            | "function_item" | "function_signature_item");
+        return matches!(
+            parent_kind,
+            "call_expression"
+                | "function_definition"
+                | "method_definition"
+                | "function_declaration"
+                | "function_item"
+                | "function_signature_item"
+        );
     }
     let is_expression = kind.ends_with("_expression")
-        || matches!(kind, "parameter" | "arguments" | "argument"
-            | "parameters" | "body" | "block" | "declaration"
-            | "statement" | "program" | "source_file"
-            | "ERROR" | "MISSING");
+        || matches!(
+            kind,
+            "parameter"
+                | "arguments"
+                | "argument"
+                | "parameters"
+                | "body"
+                | "block"
+                | "declaration"
+                | "statement"
+                | "program"
+                | "source_file"
+                | "ERROR"
+                | "MISSING"
+        );
     !is_expression
 }
 
@@ -207,10 +362,18 @@ pub fn analyze(source: &[u8], spec: &LanguageSpec) -> ComplexityResult {
     /// decrements the function-nesting counter when the node was a function.
     fn walk_tree(root: tree_sitter::Node, source: &[u8], state: &mut WalkState) {
         enum Frame<'t> {
-            Visit { node: tree_sitter::Node<'t>, parent_kind: &'static str },
-            Exit { was_function: bool },
+            Visit {
+                node: tree_sitter::Node<'t>,
+                parent_kind: &'static str,
+            },
+            Exit {
+                was_function: bool,
+            },
         }
-        let mut stack: Vec<Frame> = vec![Frame::Visit { node: root, parent_kind: "" }];
+        let mut stack: Vec<Frame> = vec![Frame::Visit {
+            node: root,
+            parent_kind: "",
+        }];
         while let Some(frame) = stack.pop() {
             let (node, parent_kind) = match frame {
                 Frame::Exit { was_function } => {
@@ -227,14 +390,21 @@ pub fn analyze(source: &[u8], spec: &LanguageSpec) -> ComplexityResult {
             let is_function = is_named && kind_is_function(kind);
 
             if (!is_named || node.child_count() == 0)
-                && let Ok(raw) = node.utf8_text(source) {
-                    let text = raw.trim();
-                    if !text.is_empty() {
-                        let is_op = classify(kind, text, parent_kind);
-                        let m = if is_op { &mut *state.ops } else { &mut *state.opds };
-                        m.entry(text.to_string()).and_modify(|c| *c += 1).or_insert(1);
-                    }
+                && let Ok(raw) = node.utf8_text(source)
+            {
+                let text = raw.trim();
+                if !text.is_empty() {
+                    let is_op = classify(kind, text, parent_kind);
+                    let m = if is_op {
+                        &mut *state.ops
+                    } else {
+                        &mut *state.opds
+                    };
+                    m.entry(text.to_string())
+                        .and_modify(|c| *c += 1)
+                        .or_insert(1);
                 }
+            }
 
             if is_function {
                 state.functions += 1;
@@ -249,7 +419,11 @@ pub fn analyze(source: &[u8], spec: &LanguageSpec) -> ComplexityResult {
             // is its children's visible parent; a hidden node passes its own
             // visible parent along.
             let child_parent_kind: &'static str =
-                if state.language.node_kind_is_visible(node.kind_id()) { kind } else { parent_kind };
+                if state.language.node_kind_is_visible(node.kind_id()) {
+                    kind
+                } else {
+                    parent_kind
+                };
 
             // Collect children with a cursor so hidden nodes are visited too.
             let mut child = node.walk();
@@ -257,21 +431,30 @@ pub fn analyze(source: &[u8], spec: &LanguageSpec) -> ComplexityResult {
                 let mut children: Vec<tree_sitter::Node> = Vec::new();
                 loop {
                     children.push(child.node());
-                    if !child.goto_next_sibling() { break; }
+                    if !child.goto_next_sibling() {
+                        break;
+                    }
                 }
                 // Push Exit first, then children reversed, so they pop in
                 // left-to-right order with the Exit frame last.
-                stack.push(Frame::Exit { was_function: is_function });
+                stack.push(Frame::Exit {
+                    was_function: is_function,
+                });
                 for c in children.into_iter().rev() {
-                    stack.push(Frame::Visit { node: c, parent_kind: child_parent_kind });
+                    stack.push(Frame::Visit {
+                        node: c,
+                        parent_kind: child_parent_kind,
+                    });
                 }
             }
         }
     }
 
     let mut ws = WalkState {
-        ops: &mut op_counts, opds: &mut opd_counts,
-        decisions: 0, functions: 0,
+        ops: &mut op_counts,
+        opds: &mut opd_counts,
+        decisions: 0,
+        functions: 0,
         fn_nesting: 0,
         language: &language,
     };
@@ -289,12 +472,29 @@ pub fn analyze(source: &[u8], spec: &LanguageSpec) -> ComplexityResult {
     halstead.derive();
 
     let total_cyclomatic = decisions + functions;
-    let avg_cyclomatic = if functions > 0 { total_cyclomatic as f64 / functions as f64 } else { 0.0 };
-    let mccabe = McCabeMetrics { function_count: functions, total_cyclomatic, average_cyclomatic: avg_cyclomatic };
+    let avg_cyclomatic = if functions > 0 {
+        total_cyclomatic as f64 / functions as f64
+    } else {
+        0.0
+    };
+    let mccabe = McCabeMetrics {
+        function_count: functions,
+        total_cyclomatic,
+        average_cyclomatic: avg_cyclomatic,
+    };
 
-    let hk = HenryKafuraMetrics { total_modules: 0, total_fan_in: 0, total_fan_out: 0, total_information_flow: 0.0 };
+    let hk = HenryKafuraMetrics {
+        total_modules: 0,
+        total_fan_in: 0,
+        total_fan_out: 0,
+        total_information_flow: 0.0,
+    };
 
-    ComplexityResult { halstead, mccabe, henry_kafura: hk }
+    ComplexityResult {
+        halstead,
+        mccabe,
+        henry_kafura: hk,
+    }
 }
 
 fn empty_result() -> ComplexityResult {
@@ -317,7 +517,9 @@ pub fn aggregate_halstead<'a>(
         acc.accumulate(h);
         any = true;
     }
-    if !any { return None; }
+    if !any {
+        return None;
+    }
     acc.derive();
     Some(acc)
 }

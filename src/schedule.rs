@@ -39,7 +39,11 @@ impl CocomoMode {
 
     pub fn avg_people(self, person_months: f64) -> f64 {
         let months = self.schedule_months(person_months);
-        if months > 0.0 { person_months / months } else { 0.0 }
+        if months > 0.0 {
+            person_months / months
+        } else {
+            0.0
+        }
     }
 }
 
@@ -162,7 +166,9 @@ pub fn estimate(sloc: u64, halstead_effort: f64) -> ScheduleReport {
         schedule_months: hsm,
         avg_people: if halstead_pm > 0.0 && hsm > 0.0 {
             halstead_pm / hsm
-        } else { 0.0 },
+        } else {
+            0.0
+        },
         single_developer_seconds: halstead_effort / 18.0,
     };
 

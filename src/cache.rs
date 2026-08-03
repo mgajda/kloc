@@ -26,11 +26,17 @@ impl Cache {
                 .map(PathBuf::from)
                 .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache")))
                 .map(|base| base.join("kloc"))
-        } else { None };
+        } else {
+            None
+        };
         if let Some(ref d) = dir {
             let _ = std::fs::create_dir_all(d);
         }
-        Cache { enabled, dir, stats: Mutex::new(CacheStats::default()) }
+        Cache {
+            enabled,
+            dir,
+            stats: Mutex::new(CacheStats::default()),
+        }
     }
 
     fn entry_path(&self, path: &Path) -> Option<PathBuf> {
@@ -41,19 +47,35 @@ impl Cache {
         Some(dir.join(format!("{hash:016x}.json")))
     }
 
-    pub fn get(&self, path: &Path, size: u64, mtime_ns: u64) -> Option<(CountResult, ComplexityResult)> {
-        if !self.enabled { return None; }
+    pub fn get(
+        &self,
+        path: &Path,
+        size: u64,
+        mtime_ns: u64,
+    ) -> Option<(CountResult, ComplexityResult)> {
+        if !self.enabled {
+            return None;
+        }
         let ep = match self.entry_path(path) {
             Some(p) => p,
-            None => { self.bump_miss(); return None; }
+            None => {
+                self.bump_miss();
+                return None;
+            }
         };
         let bytes = match std::fs::read(&ep) {
             Ok(b) => b,
-            Err(_) => { self.bump_miss(); return None; }
+            Err(_) => {
+                self.bump_miss();
+                return None;
+            }
         };
         let entry: CachedEntry = match serde_json::from_slice(&bytes) {
             Ok(e) => e,
-            Err(_) => { self.bump_miss(); return None; }
+            Err(_) => {
+                self.bump_miss();
+                return None;
+            }
         };
         if entry.size == size && entry.mtime_ns == mtime_ns {
             let mut s = self.stats.lock().unwrap();
@@ -70,11 +92,26 @@ impl Cache {
         s.misses += 1;
     }
 
-    pub fn put(&self, path: &Path, size: u64, mtime_ns: u64,
-               count: &CountResult, complexity: &ComplexityResult) {
-        if !self.enabled { return; }
-        let Some(ep) = self.entry_path(path) else { return };
-        let entry = CachedEntry { size, mtime_ns, count: *count, complexity: complexity.clone() };
+    pub fn put(
+        &self,
+        path: &Path,
+        size: u64,
+        mtime_ns: u64,
+        count: &CountResult,
+        complexity: &ComplexityResult,
+    ) {
+        if !self.enabled {
+            return;
+        }
+        let Some(ep) = self.entry_path(path) else {
+            return;
+        };
+        let entry = CachedEntry {
+            size,
+            mtime_ns,
+            count: *count,
+            complexity: complexity.clone(),
+        };
         if let Ok(bytes) = serde_json::to_vec(&entry) {
             let _ = std::fs::write(ep, bytes);
         }

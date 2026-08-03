@@ -33,7 +33,10 @@ fn tokenizer() -> &'static TokenizerState {
             }
         };
         let claude = claude_tokenizer(CLAUDE_VOCAB);
-        TokenizerState { deepseek: Mutex::new(deepseek), claude: Mutex::new(claude) }
+        TokenizerState {
+            deepseek: Mutex::new(deepseek),
+            claude: Mutex::new(claude),
+        }
     })
 }
 
@@ -47,8 +50,8 @@ fn tokenizer() -> &'static TokenizerState {
 /// encoding — only the relative rank order matters. The pretokenizer is the
 /// GPT-2 scheme (Claude's `pat_str` is the GPT-2 regex).
 fn claude_tokenizer(buf: &[u8]) -> gigatoken_rs::Tokenizer {
-    use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
     use base64::Engine as _;
+    use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 
     let tj: serde_json::Value =
         serde_json::from_slice(buf).expect("embedded claude.json must be valid JSON");
@@ -56,14 +59,22 @@ fn claude_tokenizer(buf: &[u8]) -> gigatoken_rs::Tokenizer {
         .as_str()
         .expect("embedded claude.json is missing bpe_ranks");
     let mut parts = ranks_str.split(' ');
-    assert_eq!(parts.next(), Some("!"), "claude.json bpe_ranks must be the compressed format");
+    assert_eq!(
+        parts.next(),
+        Some("!"),
+        "claude.json bpe_ranks must be the compressed format"
+    );
     let _offset: u32 = parts
         .next()
         .expect("compressed bpe_ranks missing offset")
         .parse()
         .expect("compressed bpe_ranks offset must be a number");
     let ranks: Vec<Vec<u8>> = parts
-        .map(|token| BASE64_STANDARD.decode(token).expect("compressed bpe_ranks token must be base64"))
+        .map(|token| {
+            BASE64_STANDARD
+                .decode(token)
+                .expect("compressed bpe_ranks token must be base64")
+        })
         .collect();
     let mut tokenizer = gigatoken_rs::Tokenizer::from_ranks(ranks)
         .expect("claude.json ranks must form a byte-level BPE");

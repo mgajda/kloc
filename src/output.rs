@@ -42,12 +42,20 @@ fn render_schedule_table(cols: &[MetricCol], colors: &Colors) -> String {
 
     // Width of the row-label column = the widest row label.
     let label_w = ["Method", "Metric", "Effort", "Team size", "Schedule"]
-        .iter().map(|s| s.len()).max().unwrap();
+        .iter()
+        .map(|s| s.len())
+        .max()
+        .unwrap();
 
     // Align each column's 4 row values on the decimal point.
     let mut aligned: Vec<[String; 4]> = Vec::with_capacity(n);
     for c in cols {
-        let cells = [c.metric.clone(), c.effort.clone(), c.team.clone(), c.schedule.clone()];
+        let cells = [
+            c.metric.clone(),
+            c.effort.clone(),
+            c.team.clone(),
+            c.schedule.clone(),
+        ];
         let a = align_dots(&cells);
         aligned.push([a[0].clone(), a[1].clone(), a[2].clone(), a[3].clone()]);
     }
@@ -55,9 +63,13 @@ fn render_schedule_table(cols: &[MetricCol], colors: &Colors) -> String {
     // Column widths; index 0 is the row-label column.
     let mut widths: Vec<usize> = vec![label_w];
     for (i, c) in cols.iter().enumerate() {
-        let w = c.label.len()
-            .max(aligned[i][0].len()).max(aligned[i][1].len())
-            .max(aligned[i][2].len()).max(aligned[i][3].len());
+        let w = c
+            .label
+            .len()
+            .max(aligned[i][0].len())
+            .max(aligned[i][1].len())
+            .max(aligned[i][2].len())
+            .max(aligned[i][3].len());
         widths.push(w);
     }
 
@@ -89,7 +101,9 @@ fn render_schedule_table(cols: &[MetricCol], colors: &Colors) -> String {
     while gi < n {
         let g = cols[gi].group;
         let mut span = 1;
-        while gi + span < n && cols[gi + span].group == g { span += 1; }
+        while gi + span < n && cols[gi + span].group == g {
+            span += 1;
+        }
         let w: usize = (0..span).map(|k| widths[gi + k + 1]).sum::<usize>() + 2 * (span - 1);
         let label = format!("{g:^width$}", width = w);
         group_header.push_str(&format!("  {}", paint(&label, 7, cols[gi].bg)));
@@ -128,16 +142,24 @@ fn render_schedule_table(cols: &[MetricCol], colors: &Colors) -> String {
 
 /// The `(platform name, token count)` list for the schedule table.
 /// Unknown config platforms get count 0.
-fn ai_tokens_for_config(tokens: Option<crate::TokenCounts>, cfg: &crate::ai_config::AiConfig) -> Vec<(String, u64)> {
+fn ai_tokens_for_config(
+    tokens: Option<crate::TokenCounts>,
+    cfg: &crate::ai_config::AiConfig,
+) -> Vec<(String, u64)> {
     let t = tokens.unwrap_or_default();
-    cfg.platforms.iter().map(|p| {
-        let count = match p.name.as_str() {
-            "Claude Sonnet" | "Claude Pro" | "Claude Max 5x" | "Claude Max 20x" => t.claude_sonnet,
-            "DeepSeek V4" | "DeepSeek V4 (OpenCode)" => t.deepseek_v4,
-            _ => 0,
-        };
-        (p.name.clone(), count)
-    }).collect()
+    cfg.platforms
+        .iter()
+        .map(|p| {
+            let count = match p.name.as_str() {
+                "Claude Sonnet" | "Claude Pro" | "Claude Max 5x" | "Claude Max 20x" => {
+                    t.claude_sonnet
+                }
+                "DeepSeek V4" | "DeepSeek V4 (OpenCode)" => t.deepseek_v4,
+                _ => 0,
+            };
+            (p.name.clone(), count)
+        })
+        .collect()
 }
 
 /// Build the schedule-table columns from a [`crate::schedule::ScheduleReport`]
@@ -174,20 +196,43 @@ fn build_schedule_cols(
     // own caps and effort multiplier.
     let mut ai_cols: Vec<MetricCol> = Vec::new();
     for (idx, p) in ai_config.platforms.iter().enumerate() {
-        let count = ai_tokens.iter().find(|(name, _)| name == &p.name)
-            .map(|&(_, n)| n).unwrap_or(0);
+        let count = ai_tokens
+            .iter()
+            .find(|(name, _)| name == &p.name)
+            .map(|&(_, n)| n)
+            .unwrap_or(0);
         let caps = crate::history::AiCaps::from_cfg(p);
         let multiplier = ai_multiplier_override.unwrap_or(p.multiplier.unwrap_or(5.0));
         let ai_dur = |n: u64| crate::history::ai_duration(n, &caps, multiplier);
-        let ai_effort = |n: u64| format!("{} tokens", human_tokens(crate::history::effective_tokens(n, multiplier)));
+        let ai_effort = |n: u64| {
+            format!(
+                "{} tokens",
+                human_tokens(crate::history::effective_tokens(n, multiplier))
+            )
+        };
         // Cycle colours so each column is distinct.
         let color = [6u8, 1, 3, 4, 2, 5][idx % 6];
         ai_cols.push(MetricCol {
-            group: "AI", label: p.name.clone(), color, bg: Some(236),
-            metric: if count > 0 { format!("{} tokens", human_tokens(count)) } else { "—".to_string() },
-            effort: if count > 0 { ai_effort(count) } else { "—".to_string() },
+            group: "AI",
+            label: p.name.clone(),
+            color,
+            bg: Some(236),
+            metric: if count > 0 {
+                format!("{} tokens", human_tokens(count))
+            } else {
+                "—".to_string()
+            },
+            effort: if count > 0 {
+                ai_effort(count)
+            } else {
+                "—".to_string()
+            },
             team: "—".to_string(),
-            schedule: if count > 0 { ai_dur(count) } else { "—".to_string() },
+            schedule: if count > 0 {
+                ai_dur(count)
+            } else {
+                "—".to_string()
+            },
         });
     }
 
@@ -195,35 +240,50 @@ fn build_schedule_cols(
     // suffix); effort in person-months; team size where the model has one.
     let mut cols = vec![
         MetricCol {
-            group: "LoC-driven", label: "COCOMO 1".to_string(), color: 4, bg: Some(235),
+            group: "LoC-driven",
+            label: "COCOMO 1".to_string(),
+            color: 4,
+            bg: Some(235),
             metric: format!("{:.1} k lines of code", s.ksloc),
             effort: human_person_months(s.cocomo.effort_person_months),
             team: format!("{:.1}", s.cocomo.avg_people),
             schedule: months(s.cocomo.schedule_months),
         },
         MetricCol {
-            group: "LoC-driven", label: "COCOMO 2".to_string(), color: 2, bg: Some(235),
+            group: "LoC-driven",
+            label: "COCOMO 2".to_string(),
+            color: 2,
+            bg: Some(235),
             metric: format!("{:.1} k lines of code", s.ksloc),
             effort: human_person_months(s.cocomo_ii.effort_person_months),
             team: format!("{:.1}", s.cocomo_ii.avg_people),
             schedule: months(s.cocomo_ii.schedule_months),
         },
         MetricCol {
-            group: "LoC-driven", label: "Putnam".to_string(), color: 3, bg: Some(235),
+            group: "LoC-driven",
+            label: "Putnam".to_string(),
+            color: 3,
+            bg: Some(235),
             metric: format!("{:.1} k lines of code", s.ksloc),
             effort: human_person_months(s.cocomo_ii.effort_person_months),
             team: format!("{:.1}", s.putnam.avg_people),
             schedule: months(s.putnam.schedule_months),
         },
         MetricCol {
-            group: "AST-driven", label: "Tree-sitter".to_string(), color: 7, bg: None,
+            group: "AST-driven",
+            label: "Tree-sitter".to_string(),
+            color: 7,
+            bg: None,
             metric: human_metric,
             effort: human_duration_str.clone(),
             team: "—".to_string(),
             schedule: human_duration_str,
         },
         MetricCol {
-            group: "AST-driven", label: "Halstead".to_string(), color: 5, bg: None,
+            group: "AST-driven",
+            label: "Halstead".to_string(),
+            color: 5,
+            bg: None,
             metric: match halstead_volume {
                 Some(v) => format!("{} volume", human_tokens(v as u64)),
                 None => "—".to_string(),
@@ -253,7 +313,9 @@ pub fn format(
 
 /// Humanise a duration in seconds, choosing the largest sensible unit.
 fn human_duration(seconds: f64) -> String {
-    if seconds < 0.0 || !seconds.is_finite() { return "0 s".to_string(); }
+    if seconds < 0.0 || !seconds.is_finite() {
+        return "0 s".to_string();
+    }
     const MINUTE: f64 = 60.0;
     const HOUR: f64 = 60.0 * MINUTE;
     const DAY: f64 = 24.0 * HOUR;
@@ -321,7 +383,8 @@ fn human_tokens(n: u64) -> String {
 /// Pad the numbers so the `.` sits at the same column; non-numeric cells
 /// (like `—`) are right-aligned to the same width.
 fn align_dots(cells: &[String]) -> Vec<String> {
-    let parts: Vec<(&str, &str)> = cells.iter()
+    let parts: Vec<(&str, &str)> = cells
+        .iter()
         .map(|c| match c.split_once(' ') {
             Some((n, u)) => (n, u),
             None => (c.as_str(), ""),
@@ -336,21 +399,30 @@ fn align_dots(cells: &[String]) -> Vec<String> {
         }
     }
     let width = before + 1 + after;
-    parts.iter().map(|(n, u)| {
-        let num = if let Some(i) = n.find('.') {
-            format!("{:>before$}.{:<after$}", &n[..i], &n[i + 1..])
-        } else {
-            format!("{n:>width$}")
-        };
-        if u.is_empty() { num } else { format!("{num} {u}") }
-    }).collect()
+    parts
+        .iter()
+        .map(|(n, u)| {
+            let num = if let Some(i) = n.find('.') {
+                format!("{:>before$}.{:<after$}", &n[..i], &n[i + 1..])
+            } else {
+                format!("{n:>width$}")
+            };
+            if u.is_empty() {
+                num
+            } else {
+                format!("{num} {u}")
+            }
+        })
+        .collect()
 }
 
 /// Humanise an effort in person-months, choosing the largest sensible unit:
 /// person-years beyond 12 months, person-weeks below 2 months, person-days
 /// below a week.
 fn human_person_months(pm: f64) -> String {
-    if pm < 0.0 || !pm.is_finite() { return "0 person-months".to_string(); }
+    if pm < 0.0 || !pm.is_finite() {
+        return "0 person-months".to_string();
+    }
     const WEEK: f64 = 12.0 / 52.0;
     const DAY: f64 = WEEK / 7.0;
     const KILO_YEARS: f64 = 12.0 * 1000.0;
@@ -395,10 +467,10 @@ fn format_text(
     out.push_str("SLOC by language:\n\n");
     // Column headers, coloured to match the schedule-table metrics
     // (LoC-driven = blue, files = yellow, tree-sitter = white, AI = cyan).
-    let loc_fg = 4u8;     // blue (LoC-driven LOC)
-    let files_fg = 3u8;   // yellow
-    let ts_fg = 7u8;      // white (tree-sitter)
-    let ai_fg = 6u8;      // cyan (AI)
+    let loc_fg = 4u8; // blue (LoC-driven LOC)
+    let files_fg = 3u8; // yellow
+    let ts_fg = 7u8; // white (tree-sitter)
+    let ai_fg = 6u8; // cyan (AI)
     let hdr = format!(
         "{:<12}{} {} {} {}\n",
         "Language",
@@ -411,7 +483,9 @@ fn format_text(
     for lang in &report.by_language {
         let pct = if report.total_sloc > 0 {
             (lang.sloc as f64 / report.total_sloc as f64) * 100.0
-        } else { 0.0 };
+        } else {
+            0.0
+        };
         let name_field = colored_name_field(&lang.name, &colors);
         let sloc = format!("{:>10}", lang.sloc);
         let files = format!("{:>8}", lang.files);
@@ -430,13 +504,23 @@ fn format_text(
     }
 
     out.push('\n');
-    out.push_str(&format!("{:44}= {}\n", "Total lines of code without comments", report.total_sloc));
-    out.push_str(&format!("{:44}= {}\n", "Total non-empty lines with comments", report.total_comments));
+    out.push_str(&format!(
+        "{:44}= {}\n",
+        "Total lines of code without comments", report.total_sloc
+    ));
+    out.push_str(&format!(
+        "{:44}= {}\n",
+        "Total non-empty lines with comments", report.total_comments
+    ));
     out.push_str(&format!("{:44}= {}\n", "Total files", report.total_files));
 
     out.push('\n');
     // Tree-sitter named nodes are not shown elsewhere; keep as a single line.
-    out.push_str(&format!("{:44}= {}\n", "Tree-sitter named nodes", human_tokens(report.nodes.named_nodes)));
+    out.push_str(&format!(
+        "{:44}= {}\n",
+        "Tree-sitter named nodes",
+        human_tokens(report.nodes.named_nodes)
+    ));
 
     // Concise default: one complexity line + schedule.
     if let Some(ref h) = report.halstead {
@@ -450,13 +534,11 @@ fn format_text(
     if let Some(ref m) = report.mccabe {
         out.push_str(&format!(
             "{:44}= {:.1}\n",
-            "Average cyclomatic complexity per function",
-            m.average_cyclomatic
+            "Average cyclomatic complexity per function", m.average_cyclomatic
         ));
         out.push_str(&format!(
             "{:44}= {}\n",
-            "Functions / methods",
-            m.function_count
+            "Functions / methods", m.function_count
         ));
     }
 
@@ -465,31 +547,78 @@ fn format_text(
 
         let halstead_volume = report.halstead.as_ref().map(|h| h.volume);
         let ai_tokens = ai_tokens_for_config(report.llm_tokens, ai_config);
-        let cols = build_schedule_cols(s, &ai_tokens, ai_config, ai_multiplier_override, report.nodes.leaf_tokens, halstead_volume);
+        let cols = build_schedule_cols(
+            s,
+            &ai_tokens,
+            ai_config,
+            ai_multiplier_override,
+            report.nodes.leaf_tokens,
+            halstead_volume,
+        );
         out.push_str(&render_schedule_table(&cols, &colors));
     }
 
     if full {
         if let Some(ref h) = report.halstead {
             out.push_str("\n--- Halstead metrics ---\n\n");
-            out.push_str(&format!("{:44}= {}\n", "Distinct operators (n1)", h.distinct_operators));
-            out.push_str(&format!("{:44}= {}\n", "Distinct operands (n2)", h.distinct_operands));
-            out.push_str(&format!("{:44}= {}\n", "Total operators (N1)", h.total_operators));
-            out.push_str(&format!("{:44}= {}\n", "Total operands (N2)", h.total_operands));
-            out.push_str(&format!("{:44}= {}\n", "Vocabulary (n = n1 + n2)", h.vocabulary));
+            out.push_str(&format!(
+                "{:44}= {}\n",
+                "Distinct operators (n1)", h.distinct_operators
+            ));
+            out.push_str(&format!(
+                "{:44}= {}\n",
+                "Distinct operands (n2)", h.distinct_operands
+            ));
+            out.push_str(&format!(
+                "{:44}= {}\n",
+                "Total operators (N1)", h.total_operators
+            ));
+            out.push_str(&format!(
+                "{:44}= {}\n",
+                "Total operands (N2)", h.total_operands
+            ));
+            out.push_str(&format!(
+                "{:44}= {}\n",
+                "Vocabulary (n = n1 + n2)", h.vocabulary
+            ));
             out.push_str(&format!("{:44}= {}\n", "Length (N = N1 + N2)", h.length));
-            out.push_str(&format!("{:44}= {:.1}\n", "Estimated length", h.estimated_length));
-            out.push_str(&format!("{:44}= {:.1}\n", "Volume (V = N log2 n)", h.volume));
-            out.push_str(&format!("{:44}= {:.2}\n", "Difficulty (D = n1/2 * N2/n2)", h.difficulty));
+            out.push_str(&format!(
+                "{:44}= {:.1}\n",
+                "Estimated length", h.estimated_length
+            ));
+            out.push_str(&format!(
+                "{:44}= {:.1}\n",
+                "Volume (V = N log2 n)", h.volume
+            ));
+            out.push_str(&format!(
+                "{:44}= {:.2}\n",
+                "Difficulty (D = n1/2 * N2/n2)", h.difficulty
+            ));
             out.push_str(&format!("{:44}= {:.0}\n", "Effort (E = D * V)", h.effort));
-            out.push_str(&format!("{:44}= {}\n", "Time to implement (T = E / 18 s)", human_duration(h.time_seconds)));
-            out.push_str(&format!("{:44}= {:.2}\n", "Estimated bugs (B = V / 3000)", h.bugs));
+            out.push_str(&format!(
+                "{:44}= {}\n",
+                "Time to implement (T = E / 18 s)",
+                human_duration(h.time_seconds)
+            ));
+            out.push_str(&format!(
+                "{:44}= {:.2}\n",
+                "Estimated bugs (B = V / 3000)", h.bugs
+            ));
         }
         if let Some(ref m) = report.mccabe {
             out.push_str("\n--- McCabe cyclomatic complexity ---\n\n");
-            out.push_str(&format!("{:44}= {}\n", "Functions / methods", m.function_count));
-            out.push_str(&format!("{:44}= {}\n", "Total cyclomatic complexity", m.total_cyclomatic));
-            out.push_str(&format!("{:44}= {:.1}\n", "Average per function", m.average_cyclomatic));
+            out.push_str(&format!(
+                "{:44}= {}\n",
+                "Functions / methods", m.function_count
+            ));
+            out.push_str(&format!(
+                "{:44}= {}\n",
+                "Total cyclomatic complexity", m.total_cyclomatic
+            ));
+            out.push_str(&format!(
+                "{:44}= {:.1}\n",
+                "Average per function", m.average_cyclomatic
+            ));
         }
     }
 
@@ -499,13 +628,24 @@ fn format_text(
     let p = &report.performance;
     let gbps = if p.elapsed_secs > 0.0 {
         (p.bytes_parsed as f64 / 1e9) / p.elapsed_secs
-    } else { 0.0 };
-    perf.push_str(&format!("{:44}= {:.3} s\n", "Total runtime", p.elapsed_secs));
+    } else {
+        0.0
+    };
+    perf.push_str(&format!(
+        "{:44}= {:.3} s\n",
+        "Total runtime", p.elapsed_secs
+    ));
     perf.push_str(&format!("{:44}= {:.3} GB/s\n", "Sources parsed", gbps));
     perf.push_str(&format!("{:44}= {:.1} files/s\n", "Files", p.files_per_sec));
-    perf.push_str(&format!("{:44}= {:.1} declarations/s\n", "Declarations (functions)", p.functions_per_sec));
+    perf.push_str(&format!(
+        "{:44}= {:.1} declarations/s\n",
+        "Declarations (functions)", p.functions_per_sec
+    ));
     if report.cache_hits > 0 || report.cache_misses > 0 {
-        perf.push_str(&format!("{:44}= {} hits / {} misses\n", "Cache", report.cache_hits, report.cache_misses));
+        perf.push_str(&format!(
+            "{:44}= {} hits / {} misses\n",
+            "Cache", report.cache_hits, report.cache_misses
+        ));
     }
     out.push_str(&colors.gray(&perf));
 
@@ -522,10 +662,22 @@ pub fn format_history(
     let mut out = String::new();
     out.push_str("Git history:\n\n");
     out.push_str(&format!("{:44}= {}\n", "Commits analyzed", report.commits));
-    out.push_str(&format!("{:44}= {}\n", "Lines added (parsed)", report.total_added_lines));
-    out.push_str(&format!("{:44}= {}\n", "Lines removed (parsed)", report.total_removed_lines));
-    out.push_str(&format!("{:44}= {}\n", "All diff lines added", report.all_added_lines));
-    out.push_str(&format!("{:44}= {}\n", "All diff lines removed", report.all_removed_lines));
+    out.push_str(&format!(
+        "{:44}= {}\n",
+        "Lines added (parsed)", report.total_added_lines
+    ));
+    out.push_str(&format!(
+        "{:44}= {}\n",
+        "Lines removed (parsed)", report.total_removed_lines
+    ));
+    out.push_str(&format!(
+        "{:44}= {}\n",
+        "All diff lines added", report.all_added_lines
+    ));
+    out.push_str(&format!(
+        "{:44}= {}\n",
+        "All diff lines removed", report.all_removed_lines
+    ));
 
     if !report.by_language.is_empty() {
         out.push_str("\nChanged lines by language:\n\n");
@@ -533,7 +685,10 @@ pub fn format_history(
             let name_field = colored_name_field(&lang.name, &colors);
             out.push_str(&format!(
                 "{} +{:>8}  -{:>8}  {:>12} tokens\n",
-                name_field, lang.added_lines, lang.removed_lines, human_tokens(lang.changed_tokens)
+                name_field,
+                lang.added_lines,
+                lang.removed_lines,
+                human_tokens(lang.changed_tokens)
             ));
         }
     }
@@ -586,11 +741,15 @@ mod tests {
         // The decimal points should line up: each numeric value is padded so
         // the '.' sits at the same column. The em-dash cell has no dot and is
         // skipped.
-        let dots: Vec<usize> = aligned.iter()
+        let dots: Vec<usize> = aligned
+            .iter()
             .filter(|s| s.trim() != "—")
             .map(|s| s.find('.').unwrap())
             .collect();
-        assert!(dots.windows(2).all(|w| w[0] == w[1]), "dots not aligned: {aligned:?}");
+        assert!(
+            dots.windows(2).all(|w| w[0] == w[1]),
+            "dots not aligned: {aligned:?}"
+        );
     }
 
     #[test]
@@ -627,8 +786,24 @@ mod tests {
 
     // ---- Schedule-table layout tests -------------------------------------
 
-    fn col(group: &'static str, label: &str, metric: &str, effort: &str, team: &str, schedule: &str) -> MetricCol {
-        MetricCol { group, label: label.to_string(), color: 1, bg: None, metric: metric.to_string(), effort: effort.to_string(), team: team.to_string(), schedule: schedule.to_string() }
+    fn col(
+        group: &'static str,
+        label: &str,
+        metric: &str,
+        effort: &str,
+        team: &str,
+        schedule: &str,
+    ) -> MetricCol {
+        MetricCol {
+            group,
+            label: label.to_string(),
+            color: 1,
+            bg: None,
+            metric: metric.to_string(),
+            effort: effort.to_string(),
+            team: team.to_string(),
+            schedule: schedule.to_string(),
+        }
     }
 
     fn csi_strip(s: &str) -> String {
@@ -638,7 +813,9 @@ mod tests {
             if c == '\x1b' {
                 // consume until 'm'
                 for ch in chars.by_ref() {
-                    if ch == 'm' { break; }
+                    if ch == 'm' {
+                        break;
+                    }
                 }
             } else {
                 out.push(c);
@@ -655,15 +832,28 @@ mod tests {
             let mut cols = Vec::new();
             for (i, label) in labels.iter().enumerate().take(ncols) {
                 let g = if i % 2 == 0 { "G1" } else { "G2" };
-                cols.push(col(g, label, &format!("{i}.5 x"), "2.0 person-months", "3", "4.0 months"));
+                cols.push(col(
+                    g,
+                    label,
+                    &format!("{i}.5 x"),
+                    "2.0 person-months",
+                    "3",
+                    "4.0 months",
+                ));
             }
             let out = render_schedule_table(&cols, &Colors::force(false));
-            let lines: Vec<String> = out.lines().map(csi_strip).filter(|l| !l.trim().is_empty()).collect();
+            let lines: Vec<String> = out
+                .lines()
+                .map(csi_strip)
+                .filter(|l| !l.trim().is_empty())
+                .collect();
             // Skip the group-header row (it may not align); check data rows.
             let data: Vec<&String> = lines.iter().skip(2).collect();
             let widths: Vec<usize> = data.iter().map(|l| l.chars().count()).collect();
-            assert!(widths.windows(2).all(|w| w[0] == w[1]),
-                "unequal row widths for {ncols} cols: {widths:?}\n{out}");
+            assert!(
+                widths.windows(2).all(|w| w[0] == w[1]),
+                "unequal row widths for {ncols} cols: {widths:?}\n{out}"
+            );
         }
     }
 
@@ -676,7 +866,10 @@ mod tests {
         let out = render_schedule_table(&cols, &Colors::force(false));
         let plain = csi_strip(&out);
         for label in ["Method", "Metric", "Effort", "Team size", "Schedule"] {
-            assert!(plain.contains(label), "missing row label {label:?} in:\n{plain}");
+            assert!(
+                plain.contains(label),
+                "missing row label {label:?} in:\n{plain}"
+            );
         }
     }
 
@@ -684,23 +877,50 @@ mod tests {
     fn table_decimals_aligned_across_rows() {
         // Within each column the decimal points of numeric cells must align.
         let cols = vec![
-            col("G1", "A", "10.5 x", "2.25 person-months", "1.5", "4.0 months"),
-            col("G1", "B", "9.5 x", "1.5 person-months", "2.0", "30.5 months"),
+            col(
+                "G1",
+                "A",
+                "10.5 x",
+                "2.25 person-months",
+                "1.5",
+                "4.0 months",
+            ),
+            col(
+                "G1",
+                "B",
+                "9.5 x",
+                "1.5 person-months",
+                "2.0",
+                "30.5 months",
+            ),
         ];
         let out = render_schedule_table(&cols, &Colors::force(false));
-        let lines: Vec<String> = out.lines().map(csi_strip).filter(|l| !l.trim().is_empty()).collect();
+        let lines: Vec<String> = out
+            .lines()
+            .map(csi_strip)
+            .filter(|l| !l.trim().is_empty())
+            .collect();
         // lines: [group, Method, Metric, Effort, Team size, Schedule]
         // For each column, the dot must sit at the same char index in the
         // Metric and Schedule rows (both contain decimals).
         let metric = &lines[2];
         let schedule = &lines[5];
         let find_dot = |l: &str, nth: usize| {
-            l.char_indices().filter(|(_, c)| *c == '.').nth(nth).map(|(i, _)| i)
+            l.char_indices()
+                .filter(|(_, c)| *c == '.')
+                .nth(nth)
+                .map(|(i, _)| i)
         };
         let dots: Vec<Option<usize>> = (0..2).map(|k| find_dot(metric, k)).collect();
         let sdots: Vec<Option<usize>> = (0..2).map(|k| find_dot(schedule, k)).collect();
-        assert_eq!(dots[0], sdots[0], "col A dot misaligned:\n{metric}\n{schedule}");
-        assert_eq!(dots[1], sdots[1], "col B dot misaligned:\n{metric}\n{schedule}");
+        assert_eq!(
+            dots[0], sdots[0],
+            "col A dot misaligned:\n{metric}\n{schedule}"
+        );
+        assert_eq!(
+            dots[1], sdots[1],
+            "col B dot misaligned:\n{metric}\n{schedule}"
+        );
     }
 
     #[test]
@@ -717,12 +937,28 @@ mod tests {
         let out = render_schedule_table(&cols, &Colors::force(false));
         let plain = csi_strip(&out);
         for label in ["LoC-driven", "Halstead", "AI"] {
-            assert!(plain.contains(label), "missing group header {label:?}:\n{plain}");
+            assert!(
+                plain.contains(label),
+                "missing group header {label:?}:\n{plain}"
+            );
         }
         // Column labels in order.
-        let method_line = plain.lines().find(|l| l.contains("Method")).unwrap().to_string();
-        for label in ["COCOMO 1", "COCOMO 2", "Halstead", "Claude Sonnet", "DeepSeek V4 (OpenCode)"] {
-            assert!(method_line.contains(label), "missing column {label:?} in {method_line:?}");
+        let method_line = plain
+            .lines()
+            .find(|l| l.contains("Method"))
+            .unwrap()
+            .to_string();
+        for label in [
+            "COCOMO 1",
+            "COCOMO 2",
+            "Halstead",
+            "Claude Sonnet",
+            "DeepSeek V4 (OpenCode)",
+        ] {
+            assert!(
+                method_line.contains(label),
+                "missing column {label:?} in {method_line:?}"
+            );
         }
     }
 
@@ -734,7 +970,14 @@ mod tests {
 
     #[test]
     fn table_single_column() {
-        let cols = vec![col("Only", "Solo", "5.5 x", "2.0 person-months", "—", "1.0 months")];
+        let cols = vec![col(
+            "Only",
+            "Solo",
+            "5.5 x",
+            "2.0 person-months",
+            "—",
+            "1.0 months",
+        )];
         let out = render_schedule_table(&cols, &Colors::force(false));
         assert!(out.contains("Solo"));
         assert!(out.contains("5.5 x"));
@@ -746,8 +989,22 @@ mod tests {
         // Colored vs uncolored output must produce the same aligned plain text.
         let mk = |color: bool| {
             let cols = vec![
-                col("G1", "COCOMO 1", "1.5 x", "2.0 person-months", "3", "4.0 months"),
-                col("G2", "Halstead", "1.5 x", "2.0 person-months", "—", "4.0 months"),
+                col(
+                    "G1",
+                    "COCOMO 1",
+                    "1.5 x",
+                    "2.0 person-months",
+                    "3",
+                    "4.0 months",
+                ),
+                col(
+                    "G2",
+                    "Halstead",
+                    "1.5 x",
+                    "2.0 person-months",
+                    "—",
+                    "4.0 months",
+                ),
             ];
             render_schedule_table(&cols, &Colors::force(color))
         };
@@ -758,6 +1015,4 @@ mod tests {
         let expected: Vec<String> = plain_out.lines().map(|l| l.to_string()).collect();
         assert_eq!(stripped, expected, "color changed layout");
     }
-
 }
-

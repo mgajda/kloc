@@ -74,7 +74,12 @@ mod tests {
 
     #[test]
     fn test_level_roundtrip() {
-        for lvl in [LogLevel::Error, LogLevel::Warning, LogLevel::Info, LogLevel::Debug] {
+        for lvl in [
+            LogLevel::Error,
+            LogLevel::Warning,
+            LogLevel::Info,
+            LogLevel::Debug,
+        ] {
             set_level(lvl);
             assert_eq!(level(), lvl);
         }

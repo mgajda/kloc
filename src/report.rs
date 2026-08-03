@@ -1,8 +1,8 @@
-use std::collections::BTreeMap;
-use serde::Serialize;
 use crate::complexity;
 use crate::schedule;
 use crate::{Performance, TokenCounts};
+use serde::Serialize;
+use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct LanguageTotal {
@@ -45,7 +45,12 @@ impl Report {
         let mut by_language: Vec<LanguageTotal> = counts
             .into_iter()
             .map(|(name, (sloc, files, comments, leaf, ai))| LanguageTotal {
-                name, sloc, comments, files, leaf_tokens: leaf, ai_tokens: ai,
+                name,
+                sloc,
+                comments,
+                files,
+                leaf_tokens: leaf,
+                ai_tokens: ai,
             })
             .collect();
         by_language.sort_by(|a, b| b.sloc.cmp(&a.sloc));
@@ -57,20 +62,23 @@ impl Report {
         let halstead = complexity::aggregate_halstead(cx_halstead.values());
         let mccabe = aggregate_mccabe(&cx_mccabe);
 
-        let schedule = halstead.as_ref().map(|h| {
-            schedule::estimate(total_sloc, h.effort)
-        });
+        let schedule = halstead
+            .as_ref()
+            .map(|h| schedule::estimate(total_sloc, h.effort));
 
         Report {
             by_language,
-            total_sloc, total_comments, total_files,
+            total_sloc,
+            total_comments,
+            total_files,
             halstead,
             mccabe,
             nodes,
             schedule,
             llm_tokens,
             performance,
-            cache_hits, cache_misses,
+            cache_hits,
+            cache_misses,
         }
     }
 }
@@ -78,14 +86,22 @@ impl Report {
 fn aggregate_mccabe(
     cx_mccabe: &BTreeMap<String, complexity::McCabeMetrics>,
 ) -> Option<complexity::McCabeMetrics> {
-    if cx_mccabe.is_empty() { return None; }
-    let mut acc = complexity::McCabeMetrics { function_count: 0, total_cyclomatic: 0, average_cyclomatic: 0.0 };
+    if cx_mccabe.is_empty() {
+        return None;
+    }
+    let mut acc = complexity::McCabeMetrics {
+        function_count: 0,
+        total_cyclomatic: 0,
+        average_cyclomatic: 0.0,
+    };
     for m in cx_mccabe.values() {
         acc.function_count += m.function_count;
         acc.total_cyclomatic += m.total_cyclomatic;
     }
     acc.average_cyclomatic = if acc.function_count > 0 {
         acc.total_cyclomatic as f64 / acc.function_count as f64
-    } else { 0.0 };
+    } else {
+        0.0
+    };
     Some(acc)
 }

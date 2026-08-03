@@ -288,7 +288,9 @@ impl LanguageRegistry {
         }
         let ext = path.extension().and_then(|e| e.to_str())?;
         let dotted = format!(".{}", ext);
-        self.languages.iter().find(|l| l.extensions.iter().any(|e| *e == dotted))
+        self.languages
+            .iter()
+            .find(|l| l.extensions.iter().any(|e| *e == dotted))
     }
 
     pub fn detect_by_shebang(&self, first_line: &[u8]) -> Option<&LanguageSpec> {
@@ -303,9 +305,11 @@ impl LanguageRegistry {
             after_hash.rsplit('/').next().unwrap_or("")
         };
         let interpreter = interpreter.trim();
-        self.languages.iter().find(|l| l.shebangs.iter().any(|s| {
-            interpreter == *s || interpreter.starts_with(s)
-        }))
+        self.languages.iter().find(|l| {
+            l.shebangs
+                .iter()
+                .any(|s| interpreter == *s || interpreter.starts_with(s))
+        })
     }
 
     /// Detect a language by extension, falling back to a provided first line

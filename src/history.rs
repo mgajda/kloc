@@ -24,10 +24,11 @@ pub struct AiCaps {
 impl AiCaps {
     /// Build caps from a config platform entry.
     pub fn from_cfg(p: &crate::ai_config::AiPlatformCfg) -> Self {
-        AiCaps { breaks: p.caps.clone() }
+        AiCaps {
+            breaks: p.caps.clone(),
+        }
     }
 }
-
 
 /// Effective input tokens for N output tokens: N × (1 + multiplier).
 /// Debugging typically consumes 3–5× the output tokens, 10–20× for complex
@@ -39,7 +40,10 @@ pub fn effective_tokens(tokens: u64, multiplier: f64) -> u64 {
 /// Elapsed seconds to process `tokens` on the default plan (Max 20x).
 pub fn ai_time_seconds(tokens: u64) -> f64 {
     let cfg = crate::ai_config::default_config();
-    let p = cfg.platforms.first().expect("default config has a platform");
+    let p = cfg
+        .platforms
+        .first()
+        .expect("default config has a platform");
     let caps = AiCaps::from_cfg(p);
     let mult = p.multiplier.unwrap_or(5.0);
     ai_time_seconds_with_caps(tokens, &caps, mult)
@@ -49,7 +53,9 @@ pub fn ai_time_seconds(tokens: u64) -> f64 {
 /// (`effective = tokens × (1 + multiplier)`).
 pub fn ai_time_seconds_with_caps(tokens: u64, caps: &AiCaps, multiplier: f64) -> f64 {
     let effective = effective_tokens(tokens, multiplier);
-    if effective == 0 { return 0.0; }
+    if effective == 0 {
+        return 0.0;
+    }
     // Find the largest cap the load fits under; whole periods + remainder.
     let mut acc_secs = 0.0;
     let mut remaining = effective;
@@ -58,7 +64,9 @@ pub fn ai_time_seconds_with_caps(tokens: u64, caps: &AiCaps, multiplier: f64) ->
     while i > 0 {
         i -= 1;
         let (cap_tokens, cap_secs) = caps.breaks[i];
-        if cap_tokens == 0 || cap_secs == 0 { continue; }
+        if cap_tokens == 0 || cap_secs == 0 {
+            continue;
+        }
         let whole = remaining / cap_tokens;
         if whole > 0 {
             acc_secs += whole as f64 * cap_secs as f64;
@@ -84,7 +92,9 @@ pub fn ai_duration(tokens: u64, caps: &AiCaps, multiplier: f64) -> String {
     while i > 0 {
         i -= 1;
         let (cap_tokens, cap_secs) = caps.breaks[i];
-        if cap_tokens == 0 { continue; }
+        if cap_tokens == 0 {
+            continue;
+        }
         let whole = effective / cap_tokens;
         if whole > 0 {
             let unit = label_secs(cap_secs, whole);
@@ -154,8 +164,6 @@ fn label_secs(secs: u64, count: u64) -> String {
         format!("{num} {name}{plural}")
     }
 }
-
-
 
 /// Per-language history totals.
 #[derive(Debug, Clone, serde::Serialize)]
@@ -243,7 +251,15 @@ pub fn run_history(
         let line = line.map_err(|e| format!("reading git log: {e}"))?;
         if let Some(hash) = line.strip_prefix("commit ") {
             if !new_commit {
-                flush(&mut per_lang, &mut halstead_agg, registry, &mut llm, &mut total_added, &mut total_removed, count_llm_tokens);
+                flush(
+                    &mut per_lang,
+                    &mut halstead_agg,
+                    registry,
+                    &mut llm,
+                    &mut total_added,
+                    &mut total_removed,
+                    count_llm_tokens,
+                );
             }
             let _ = hash;
             commits += 1;
@@ -251,7 +267,9 @@ pub fn run_history(
         } else if let Some(p) = line.strip_prefix("diff --git ") {
             // "a/old b/new" — take the second path (b/...), the post-image.
             current_file = second_diff_path(p);
-            current_spec = current_file.as_deref().and_then(|p| registry.detect_by_ext(Path::new(p)));
+            current_spec = current_file
+                .as_deref()
+                .and_then(|p| registry.detect_by_ext(Path::new(p)));
         } else if line.starts_with("+++") || line.starts_with("---") {
             continue;
         } else if let Some(content) = line.strip_prefix('+') {
@@ -267,7 +285,9 @@ pub fn run_history(
                 if let Some(f) = &current_file {
                     e.files.insert(f.clone());
                 }
-                if non_blank { e.added_lines += 1; }
+                if non_blank {
+                    e.added_lines += 1;
+                }
                 e.added_bytes.push(b'\n');
                 e.added_bytes.extend_from_slice(content.as_bytes());
             }
@@ -286,31 +306,51 @@ pub fn run_history(
             }
         }
     }
-    flush(&mut per_lang, &mut halstead_agg, registry, &mut llm, &mut total_added, &mut total_removed, count_llm_tokens);
+    flush(
+        &mut per_lang,
+        &mut halstead_agg,
+        registry,
+        &mut llm,
+        &mut total_added,
+        &mut total_removed,
+        count_llm_tokens,
+    );
 
     let total_changed_tokens = llm.claude_sonnet;
-    let ai_estimates = ai_config.platforms.iter().map(|p| {
-        let caps = AiCaps::from_cfg(p);
-        let multiplier = ai_multiplier_override.unwrap_or(p.multiplier.unwrap_or(5.0));
-        let elapsed_seconds = ai_time_seconds_with_caps(total_changed_tokens, &caps, multiplier);
-        let effective = effective_tokens(total_changed_tokens, multiplier);
-        let first = caps.breaks.first().map(|&(t, _)| t).unwrap_or(0);
-        let windows_5h = if first > 0 { effective.div_ceil(first) } else { 0 };
-        AiEstimate {
-            platform: p.name.clone(),
-            changed_tokens: total_changed_tokens,
-            windows_5h,
-            elapsed_seconds,
-        }
-    }).collect();
+    let ai_estimates = ai_config
+        .platforms
+        .iter()
+        .map(|p| {
+            let caps = AiCaps::from_cfg(p);
+            let multiplier = ai_multiplier_override.unwrap_or(p.multiplier.unwrap_or(5.0));
+            let elapsed_seconds =
+                ai_time_seconds_with_caps(total_changed_tokens, &caps, multiplier);
+            let effective = effective_tokens(total_changed_tokens, multiplier);
+            let first = caps.breaks.first().map(|&(t, _)| t).unwrap_or(0);
+            let windows_5h = if first > 0 {
+                effective.div_ceil(first)
+            } else {
+                0
+            };
+            AiEstimate {
+                platform: p.name.clone(),
+                changed_tokens: total_changed_tokens,
+                windows_5h,
+                elapsed_seconds,
+            }
+        })
+        .collect();
 
-    let by_language = per_lang.into_iter().map(|(name, p)| LanguageHistoryTotal {
-        name,
-        files: p.files.len() as u64,
-        added_lines: p.total_added_lines,
-        removed_lines: p.total_removed_lines,
-        changed_tokens: p.added_tokens + p.removed_tokens,
-    }).collect();
+    let by_language = per_lang
+        .into_iter()
+        .map(|(name, p)| LanguageHistoryTotal {
+            name,
+            files: p.files.len() as u64,
+            added_lines: p.total_added_lines,
+            removed_lines: p.total_removed_lines,
+            changed_tokens: p.added_tokens + p.removed_tokens,
+        })
+        .collect();
 
     let halstead = crate::complexity::aggregate_halstead(halstead_agg.values());
 
@@ -326,11 +366,18 @@ pub fn run_history(
         ai_estimates,
         llm_changed_tokens: {
             #[cfg(feature = "tokens")]
-            { Some(llm) }
+            {
+                Some(llm)
+            }
             #[cfg(not(feature = "tokens"))]
-            { None }
+            {
+                None
+            }
         },
-        schedule: crate::schedule::estimate(total_added, halstead.as_ref().map_or(0.0, |h| h.effort)),
+        schedule: crate::schedule::estimate(
+            total_added,
+            halstead.as_ref().map_or(0.0, |h| h.effort),
+        ),
         halstead,
         // ~4 tree-sitter tokens per added LOC (midpoint of 200–2000 tokens
         // per 50–500 LOC/day).
@@ -374,8 +421,10 @@ fn flush(
             let added = crate::complexity::analyze(&p.added_bytes, spec);
             let removed = crate::complexity::analyze(&p.removed_bytes, spec);
             let h = halstead_agg.entry(name.clone()).or_default();
-            h.distinct_operators += added.halstead.distinct_operators + removed.halstead.distinct_operators;
-            h.distinct_operands += added.halstead.distinct_operands + removed.halstead.distinct_operands;
+            h.distinct_operators +=
+                added.halstead.distinct_operators + removed.halstead.distinct_operators;
+            h.distinct_operands +=
+                added.halstead.distinct_operands + removed.halstead.distinct_operands;
             h.total_operators += added.halstead.total_operators + removed.halstead.total_operators;
             h.total_operands += added.halstead.total_operands + removed.halstead.total_operands;
         }
@@ -399,7 +448,11 @@ fn flush(
 ///
 /// `from` is exclusive: the range is `from..to`, `from..` (to the branch
 /// tip), or no revision argument (full history).
-fn git_log_p(root: &Path, from: Option<&str>, to: Option<&str>) -> Result<impl std::io::Read, String> {
+fn git_log_p(
+    root: &Path,
+    from: Option<&str>,
+    to: Option<&str>,
+) -> Result<impl std::io::Read, String> {
     let mut cmd = Command::new("git");
     cmd.arg("log")
         .arg("-p")
@@ -410,7 +463,9 @@ fn git_log_p(root: &Path, from: Option<&str>, to: Option<&str>) -> Result<impl s
     if let Some(range) = build_range(from, to) {
         cmd.arg(range);
     }
-    let child = cmd.spawn().map_err(|e| format!("failed to run git log: {e}"))?;
+    let child = cmd
+        .spawn()
+        .map_err(|e| format!("failed to run git log: {e}"))?;
     Ok(child.stdout.ok_or("git log produced no stdout")?)
 }
 
@@ -431,7 +486,10 @@ fn build_range(from: Option<&str>, to: Option<&str>) -> Option<String> {
 
 /// Find the git work-tree root from the given paths (fall back to cwd).
 fn git_root(paths: &[std::path::PathBuf]) -> Result<std::path::PathBuf, String> {
-    let start = paths.first().cloned().unwrap_or_else(|| std::path::PathBuf::from("."));
+    let start = paths
+        .first()
+        .cloned()
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
     let out = Command::new("git")
         .arg("rev-parse")
         .arg("--show-toplevel")
@@ -441,7 +499,9 @@ fn git_root(paths: &[std::path::PathBuf]) -> Result<std::path::PathBuf, String> 
     if !out.status.success() {
         return Err("--history requires a git repository (git rev-parse failed)".to_string());
     }
-    Ok(std::path::PathBuf::from(String::from_utf8_lossy(&out.stdout).trim()))
+    Ok(std::path::PathBuf::from(
+        String::from_utf8_lossy(&out.stdout).trim(),
+    ))
 }
 
 /// Extract the post-image path (`b/...`) from a `diff --git a/X b/Y` line.
@@ -449,7 +509,9 @@ fn second_diff_path(p: &str) -> Option<String> {
     let mut it = p.split_whitespace();
     let _a = it.next();
     let b = it.next()?;
-    b.strip_prefix("b/").map(|s| s.to_string()).or_else(|| Some(b.to_string()))
+    b.strip_prefix("b/")
+        .map(|s| s.to_string())
+        .or_else(|| Some(b.to_string()))
 }
 
 #[cfg(test)]
@@ -508,13 +570,22 @@ mod tests {
     fn test_build_range() {
         assert_eq!(build_range(None, None), None);
         assert_eq!(build_range(Some("v1"), None), Some("v1..".to_string()));
-        assert_eq!(build_range(Some("v1"), Some("v2")), Some("v1..v2".to_string()));
+        assert_eq!(
+            build_range(Some("v1"), Some("v2")),
+            Some("v1..v2".to_string())
+        );
         assert_eq!(build_range(None, Some("HEAD")), Some("HEAD".to_string()));
     }
 
     #[test]
     fn test_second_diff_path() {
-        assert_eq!(second_diff_path("a/old.rs b/new.rs"), Some("new.rs".to_string()));
-        assert_eq!(second_diff_path("b/new.rs b/new.rs"), Some("new.rs".to_string()));
+        assert_eq!(
+            second_diff_path("a/old.rs b/new.rs"),
+            Some("new.rs".to_string())
+        );
+        assert_eq!(
+            second_diff_path("b/new.rs b/new.rs"),
+            Some("new.rs".to_string())
+        );
     }
 }

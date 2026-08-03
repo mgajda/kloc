@@ -1,7 +1,7 @@
-use std::collections::HashSet;
-use tree_sitter::{Node, Parser};
 use crate::complexity::NodeCounts;
 use crate::language::LanguageSpec;
+use std::collections::HashSet;
+use tree_sitter::{Node, Parser};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct CountResult {
@@ -60,8 +60,11 @@ pub fn count(source: &[u8], spec: &LanguageSpec) -> CountResult {
     let mut merged: Vec<(usize, usize)> = Vec::new();
     for &(s, e) in &comment_ranges {
         if let Some(last) = merged.last_mut()
-            && s <= last.1 {
-            if e > last.1 { last.1 = e; }
+            && s <= last.1
+        {
+            if e > last.1 {
+                last.1 = e;
+            }
         } else {
             merged.push((s, e));
         }
@@ -117,7 +120,12 @@ pub fn count(source: &[u8], spec: &LanguageSpec) -> CountResult {
         }
     }
 
-    CountResult { sloc, comments, blanks, nodes }
+    CountResult {
+        sloc,
+        comments,
+        blanks,
+        nodes,
+    }
 }
 
 /// Byte offsets where each line starts. `line_starts[0] = 0`; a trailing
@@ -247,8 +255,8 @@ mod tests {
 
     #[test]
     fn test_count_comment_code_classification() {
-        use tree_sitter::Language;
         use crate::language::LanguageCategory;
+        use tree_sitter::Language;
         let spec = LanguageSpec {
             name: "test",
             category: LanguageCategory::Programming,
@@ -271,8 +279,8 @@ mod tests {
 
     #[test]
     fn test_count_blank() {
-        use tree_sitter::Language;
         use crate::language::LanguageCategory;
+        use tree_sitter::Language;
         let spec = LanguageSpec {
             name: "test",
             category: LanguageCategory::Programming,

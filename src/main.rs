@@ -1,5 +1,5 @@
 use clap::Parser;
-use kloc::{self, cli::Args, log::LogLevel, output::OutputFormat, LanguageFilter};
+use kloc::{self, LanguageFilter, cli::Args, log::LogLevel, output::OutputFormat};
 
 fn main() {
     let args = Args::parse();
@@ -23,8 +23,13 @@ fn main() {
         let target = kloc::ai_config::config_path(Some(path))
             .unwrap_or_else(|| std::path::PathBuf::from("ai.toml"));
         match kloc::ai_config::write_default(&target) {
-            Ok(()) => { println!("wrote {}", target.display()); }
-            Err(e) => { kloc::error_log!("{e}"); std::process::exit(1); }
+            Ok(()) => {
+                println!("wrote {}", target.display());
+            }
+            Err(e) => {
+                kloc::error_log!("{e}");
+                std::process::exit(1);
+            }
         }
         return;
     }
@@ -32,24 +37,52 @@ fn main() {
     // Load the AI config (XDG file if present, else embedded default).
     let ai_config = match kloc::ai_config::load(args.ai_config.as_deref()) {
         Ok(c) => c,
-        Err(e) => { kloc::error_log!("{e}"); std::process::exit(1); }
+        Err(e) => {
+            kloc::error_log!("{e}");
+            std::process::exit(1);
+        }
     };
 
     if args.history {
         let report = match kloc::history::run_history(
-            &paths, &filter, args.from.as_deref(), args.to.as_deref(),
-            &ai_config, args.ai_multiplier, true)
-        {
+            &paths,
+            &filter,
+            args.from.as_deref(),
+            args.to.as_deref(),
+            &ai_config,
+            args.ai_multiplier,
+            true,
+        ) {
             Ok(r) => r,
-            Err(e) => { kloc::error_log!("{e}"); std::process::exit(1); }
+            Err(e) => {
+                kloc::error_log!("{e}");
+                std::process::exit(1);
+            }
         };
-        println!("{}", kloc::output::format_history(&report, color, &ai_config, args.ai_multiplier));
+        println!(
+            "{}",
+            kloc::output::format_history(&report, color, &ai_config, args.ai_multiplier)
+        );
         return;
     }
 
-    let output_format = if args.json { OutputFormat::Json } else { OutputFormat::Text };
+    let output_format = if args.json {
+        OutputFormat::Json
+    } else {
+        OutputFormat::Text
+    };
     let opts = kloc::RunOptions::from_args(&args);
     let report = kloc::run(&paths, &filter, &opts);
     let full = args.full;
-    println!("{}", kloc::output::format(&report, &output_format, full, color, &ai_config, args.ai_multiplier));
+    println!(
+        "{}",
+        kloc::output::format(
+            &report,
+            &output_format,
+            full,
+            color,
+            &ai_config,
+            args.ai_multiplier
+        )
+    );
 }
