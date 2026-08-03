@@ -140,7 +140,7 @@ tree-sitter = "0.26"
 tree-sitter-language = "0.1"
 unicode-normalization = { version = "0.1", optional = true }
 walkdir = "2"
-gigatoken = { git = "ssh://git@github.com/mgajda/gigatoken.git", optional = true }
+gigatoken = { git = "https://github.com/mgajda/gigatoken.git", optional = true }
 
 tree-sitter-ada = { version = "0.1", optional = true }
 tree-sitter-agda = { version = "1", optional = true }

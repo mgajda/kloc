@@ -633,7 +633,7 @@ dependencies = [
 [[package]]
 name = "gigatoken"
 version = "0.9.0"
-source = "git+ssh://git@github.com/mgajda/gigatoken.git#827fbf6da45f2c53a456745b5bc334a3aa9f8e16"
+source = "git+https://github.com/mgajda/gigatoken.git#827fbf6da45f2c53a456745b5bc334a3aa9f8e16"
 dependencies = [
  "aho-corasick",
  "arrow-array",
