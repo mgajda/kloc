@@ -1,7 +1,7 @@
-FROM docker.io/rust:1.85-slim-bookworm AS builder
+FROM docker.io/rust:1.89-slim-bookworm AS builder
 WORKDIR /build
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    pkg-config libc6-dev && rm -rf /var/lib/apt/lists/*
+    build-essential pkg-config python3 && rm -rf /var/lib/apt/lists/*
 COPY . .
 RUN cargo build --release --locked
 

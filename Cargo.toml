@@ -2,6 +2,7 @@
 name = "kloc"
 version = "0.2.0"
 edition = "2024"
+rust-version = "1.89"
 license = "GPL-2.0-only"
 authors = ["Michal J. Gajda <mjgajda@migamake.com>"]
 description = "Count lines of code and code complexity via universal AST parsing"

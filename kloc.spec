@@ -9,7 +9,7 @@ License: GPL-2.0-only
 URL:     https://github.com/mgajda/kloc
 Source0: https://github.com/mgajda/kloc/archive/v%{version}/kloc-%{version}.tar.gz
 
-BuildRequires: rust >= 1.85, cargo, gcc-c++, python3-devel
+BuildRequires: rust >= 1.89, cargo, gcc-c++, python3-devel
 Requires:      libgcc
 
 %description
