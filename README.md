@@ -136,10 +136,13 @@ limits.
 
 ## Testing
 
-`cargo test --all-features`. The git-history consistency tests generate
-random tree-sitter-parseable Rust code: each run uses a fresh seed (reported
-as `KLOK_TEST_SEED=…` in test output) and honours the `KLOK_TEST_SEED` env
-var to replay a specific seed deterministically. See `AGENTS.md`.
+`cargo test` runs the suite in about a second. The LLM-tokenizer tests are
+`#[ignore]`d because building the tokenizers takes ~2.5 s in debug builds;
+run them with `cargo test -- --ignored`. The git-history consistency tests
+generate random tree-sitter-parseable Rust code: each run uses a fresh seed
+(reported as `KLOK_TEST_SEED=…` in test output) and honours the
+`KLOK_TEST_SEED` env var to replay a specific seed deterministically. See
+`AGENTS.md`.
 
 ## Packaging status
 

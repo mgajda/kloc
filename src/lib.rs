@@ -81,6 +81,9 @@ impl From<&cli::Args> for LanguageFilter {
 
 pub struct RunOptions {
     pub sloc_only: bool,
+    /// Count LLM tokens (the `tokens` feature). The tokenizer takes ~2.5 s
+    /// to build in debug builds; tests disable this to stay fast.
+    pub count_llm_tokens: bool,
     pub cache: cache::Cache,
     pub ignore: walker::DirIgnore,
 }
@@ -96,6 +99,7 @@ impl RunOptions {
         }
         RunOptions {
             sloc_only: args.sloc_only,
+            count_llm_tokens: true,
             cache: cache::Cache::new(!args.no_cache),
             ignore,
         }
@@ -113,7 +117,7 @@ pub struct Performance {
     pub functions_per_sec: f64,
 }
 
-#[derive(Debug, Clone, Default, Copy, serde::Serialize)]
+#[derive(Debug, Clone, Default, Copy, PartialEq, Eq, serde::Serialize)]
 pub struct TokenCounts {
     pub deepseek_v4: u64,
     pub claude_sonnet: u64,
@@ -168,7 +172,11 @@ pub fn run(paths: &[PathBuf], filter: &LanguageFilter, opts: &RunOptions) -> Rep
 
             let llm_tokens = {
                 #[cfg(feature = "tokens")]
-                { tokens::count_tokens(&source) }
+                if opts.count_llm_tokens {
+                    tokens::count_tokens(&source)
+                } else {
+                    TokenCounts::default()
+                }
                 #[cfg(not(feature = "tokens"))]
                 { TokenCounts::default() }
             };

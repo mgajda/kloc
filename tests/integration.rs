@@ -34,6 +34,7 @@ fn default_filter() -> kloc::LanguageFilter {
 fn test_opts() -> kloc::RunOptions {
     kloc::RunOptions {
         sloc_only: false,
+        count_llm_tokens: false,
         cache: kloc::cache::Cache::new(false),
         ignore: kloc::walker::DirIgnore::new(false),
     }
@@ -469,7 +470,7 @@ fn run_history(dir: &std::path::Path) -> (kloc::history::HistoryReport, String) 
     let filter = default_filter();
     let cfg = kloc::ai_config::default_config();
     let report = kloc::history::run_history(
-        &[dir.to_path_buf()], &filter, None, None, &cfg, None,
+        &[dir.to_path_buf()], &filter, None, None, &cfg, None, false,
     ).expect("history should run");
     let text = kloc::output::format_history(&report, test_colors(), &test_ai_config(), None);
     (report, text)
@@ -549,7 +550,8 @@ fn integration_history_single_function_additions_match_source() {
 /// the quadratic version took minutes on inputs a tenth this deep.
 #[test]
 fn integration_deep_nesting_completes_and_counts() {
-    let depth = 40_000;
+    // 20k stays safely above the ~16k recursion-overflow threshold.
+    let depth = 20_000;
     let mut code = String::from("pub fn deep() -> u64 {\n    ");
     code.push('1');
     for _ in 0..depth {
@@ -575,7 +577,8 @@ fn integration_deep_nesting_completes_and_counts() {
 /// flat file. The walks now enumerate children with a tree cursor (O(k)).
 #[test]
 fn integration_wide_nesting_counts_every_function() {
-    let functions = 30_000;
+    // 8k children: O(k²) rescans would take seconds, O(k) is instant.
+    let functions = 8_000;
     let mut code = String::new();
     for i in 0..functions {
         code.push_str(&format!("fn f{i}() -> u64 {{ {i} }}\n"));

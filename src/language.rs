@@ -76,6 +76,7 @@ pub fn registry() -> &'static LanguageRegistry {
         }
 
         // ===== Programming languages =====
+        #[cfg(feature = "rust")]
         add_lang!(Programming, None, &[".rs"], &[], &[], "Rust", &["line_comment", "block_comment"],
             || Language::new(tree_sitter_rust::LANGUAGE));
         #[cfg(feature = "c")]

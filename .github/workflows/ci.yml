@@ -31,5 +31,10 @@ jobs:
       - name: Test (all features)
         run: cargo test --all-features --verbose
 
+      # The LLM-tokenizer tests are #[ignore]d (slow tokenizer build in
+      # debug); run them explicitly so the token feature is covered.
+      - name: Test (LLM tokenizers)
+        run: cargo test -- --ignored --verbose
+
       - name: Clippy
         run: cargo clippy --all-features -- -D warnings

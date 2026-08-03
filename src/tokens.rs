@@ -94,3 +94,32 @@ fn nfkc(source: &[u8]) -> Vec<u8> {
     };
     s.nfkc().collect::<String>().into_bytes()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Building the LLM tokenizers takes ~2.5 s in debug, so these tests are
+    // `#[ignore]`d: the fast default suite skips them. Run them with
+    // `cargo test --features tokens -- --ignored`.
+    #[test]
+    #[ignore]
+    fn counts_nonzero_on_real_source() {
+        let t = count_tokens(b"fn main() {\n    println!(\"hello\");\n}\n");
+        assert!(t.deepseek_v4 > 0, "deepseek must count tokens");
+        assert!(t.claude_sonnet > 0, "claude must count tokens");
+    }
+
+    #[test]
+    #[ignore]
+    fn counts_are_deterministic() {
+        let src = b"fn main() {\n    println!(\"hello\");\n}\n";
+        assert_eq!(count_tokens(src), count_tokens(src));
+    }
+
+    #[test]
+    #[ignore]
+    fn empty_source_counts_zero() {
+        assert_eq!(count_tokens(b""), TokenCounts::default());
+    }
+}

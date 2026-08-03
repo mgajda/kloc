@@ -204,6 +204,9 @@ pub struct HistoryReport {
 ///
 /// `from`/`to` select a commit range (`from..to`, or `from..` to the current
 /// branch tip). With neither, the whole history is analysed.
+///
+/// `count_llm_tokens` gates the per-commit LLM tokenizer (expensive to build
+/// in debug); tests pass `false`.
 pub fn run_history(
     paths: &[std::path::PathBuf],
     filter: &LanguageFilter,
@@ -211,6 +214,7 @@ pub fn run_history(
     to: Option<&str>,
     ai_config: &crate::ai_config::AiConfig,
     ai_multiplier_override: Option<f64>,
+    count_llm_tokens: bool,
 ) -> Result<HistoryReport, String> {
     let root = git_root(paths)?;
     let registry = crate::language::registry();
@@ -239,7 +243,7 @@ pub fn run_history(
         let line = line.map_err(|e| format!("reading git log: {e}"))?;
         if let Some(hash) = line.strip_prefix("commit ") {
             if !new_commit {
-                flush(&mut per_lang, &mut halstead_agg, registry, &mut llm, &mut total_added, &mut total_removed);
+                flush(&mut per_lang, &mut halstead_agg, registry, &mut llm, &mut total_added, &mut total_removed, count_llm_tokens);
             }
             let _ = hash;
             commits += 1;
@@ -282,7 +286,7 @@ pub fn run_history(
             }
         }
     }
-    flush(&mut per_lang, &mut halstead_agg, registry, &mut llm, &mut total_added, &mut total_removed);
+    flush(&mut per_lang, &mut halstead_agg, registry, &mut llm, &mut total_added, &mut total_removed, count_llm_tokens);
 
     let total_changed_tokens = llm.claude_sonnet;
     let ai_estimates = ai_config.platforms.iter().map(|p| {
@@ -357,6 +361,7 @@ fn flush(
     _llm: &mut TokenCounts,
     total_added: &mut u64,
     total_removed: &mut u64,
+    count_llm_tokens: bool,
 ) {
     for (name, p) in per_lang.iter_mut() {
         *total_added += p.added_lines;
@@ -375,7 +380,7 @@ fn flush(
             h.total_operands += added.halstead.total_operands + removed.halstead.total_operands;
         }
         #[cfg(feature = "tokens")]
-        {
+        if count_llm_tokens {
             let a = crate::tokens::count_tokens(&p.added_bytes);
             let r = crate::tokens::count_tokens(&p.removed_bytes);
             p.added_tokens += a.claude_sonnet;

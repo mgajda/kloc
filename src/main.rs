@@ -38,7 +38,7 @@ fn main() {
     if args.history {
         let report = match kloc::history::run_history(
             &paths, &filter, args.from.as_deref(), args.to.as_deref(),
-            &ai_config, args.ai_multiplier)
+            &ai_config, args.ai_multiplier, true)
         {
             Ok(r) => r,
             Err(e) => { kloc::error_log!("{e}"); std::process::exit(1); }
