@@ -123,7 +123,6 @@ pub struct TokenCounts {
 struct FileResult {
     name: String,
     bytes: u64,
-    size: u64,
     mtime_ns: u64,
     count: counter::CountResult,
     cx: Option<complexity::ComplexityResult>,
@@ -186,7 +185,7 @@ pub fn run(paths: &[PathBuf], filter: &LanguageFilter, opts: &RunOptions) -> Rep
             Some(FileResult {
                 name: entry.language.name.to_string(),
                 bytes: size,
-                size, mtime_ns,
+                mtime_ns,
                 count, cx, llm_tokens,
             })
         })

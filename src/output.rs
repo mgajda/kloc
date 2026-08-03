@@ -29,7 +29,7 @@ pub(crate) struct MetricCol {
 ///
 /// The table has four fixed rows (Metric / Effort / Team size / Schedule)
 /// and one column per `MetricCol`, grouped under spanning headers. Cells a
-/// model does not produce are "—". Decimals are aligned within each column.
+/// model does not produce are "—". Decimals align within each column.
 /// Kept separate from [`format_text`] so the layout can be tested
 /// independently of how the columns are populated.
 fn render_schedule_table(cols: &[MetricCol], colors: &Colors) -> String {
@@ -126,17 +126,8 @@ fn render_schedule_table(cols: &[MetricCol], colors: &Colors) -> String {
     out
 }
 
-/// Build the schedule-table columns from a [`crate::schedule::ScheduleReport`]
-/// plus LLM token counts and Halstead volume/time. Shared by the normal
-/// report and the `--history` report so both render identical tables —
-/// the only difference is what feeds the schedule estimate.
-///
-/// `leaf_tokens` is the tree-sitter token count, used for the human
-/// "Tree-sitter" column: a human programmer writes roughly 200–2000
-/// tree-sitter tokens (≈50–500 LOC) per day, so effort/schedule is
-/// `leaf_tokens / daily_rate` in person-days.
-/// Build the `(platform name, token count)` list for the schedule table from
-/// the known `TokenCounts` fields. Unknown config platforms get count 0.
+/// The `(platform name, token count)` list for the schedule table.
+/// Unknown config platforms get count 0.
 fn ai_tokens_for_config(tokens: Option<crate::TokenCounts>, cfg: &crate::ai_config::AiConfig) -> Vec<(String, u64)> {
     let t = tokens.unwrap_or_default();
     cfg.platforms.iter().map(|p| {
@@ -149,6 +140,12 @@ fn ai_tokens_for_config(tokens: Option<crate::TokenCounts>, cfg: &crate::ai_conf
     }).collect()
 }
 
+/// Build the schedule-table columns from a [`crate::schedule::ScheduleReport`]
+/// plus LLM token counts and Halstead volume/time. Shared by the normal and
+/// `--history` reports so both render identical tables.
+///
+/// `leaf_tokens` is the tree-sitter token count for the human "Tree-sitter"
+/// column: a human writes roughly 200–2000 tokens (≈50–500 LOC) per day.
 fn build_schedule_cols(
     s: &crate::schedule::ScheduleReport,
     ai_tokens: &[(String, u64)],
@@ -159,8 +156,6 @@ fn build_schedule_cols(
 ) -> Vec<MetricCol> {
     let months = |m: f64| human_duration(m * 30.44 * 24.0 * 3600.0);
 
-    // Human tree-sitter productivity: ~200–2000 tokens (≈50–500 LOC) per day.
-    // We use the middle of that range as the daily rate.
     const HUMAN_TOKENS_PER_DAY: f64 = 1100.0;
     let human_duration_str = if leaf_tokens > 0 {
         human_duration((leaf_tokens as f64 / HUMAN_TOKENS_PER_DAY) * 24.0 * 3600.0)
@@ -321,11 +316,10 @@ fn human_tokens(n: u64) -> String {
 
 /// Align a column of cells so the decimal points line up.
 ///
-/// Each cell is split into its leading number (up to the first space) and the
-/// unit that follows (e.g. `"5.5 person-months"` → number `"5.5"`, unit
-/// `"person-months"`). The numbers are padded so the `.` sits at the same
-/// column across the whole column; non-numeric cells (like `—`) are
-/// right-aligned to the same width.
+/// Split each cell into its leading number and the unit that follows
+/// (e.g. `"5.5 person-months"` → number `"5.5"`, unit `"person-months"`).
+/// Pad the numbers so the `.` sits at the same column; non-numeric cells
+/// (like `—`) are right-aligned to the same width.
 fn align_dots(cells: &[String]) -> Vec<String> {
     let parts: Vec<(&str, &str)> = cells.iter()
         .map(|c| match c.split_once(' ') {
@@ -377,6 +371,19 @@ fn human_person_months(pm: f64) -> String {
     format!("{value:.1} {unit}")
 }
 
+/// Render a language name in a fixed-width field, coloured with its GitHub
+/// logo colour (two-tone where the logo has a background).
+fn colored_name_field(name: &str, colors: &Colors) -> String {
+    let name_field = format!("{name:12}");
+    match logo_colors(name) {
+        Some(lc) => match lc.bg {
+            Some(bg) => colors.on(&name_field, lc.fg, bg),
+            None => colors.fg(&name_field, lc.fg),
+        },
+        None => name_field,
+    }
+}
+
 fn format_text(
     report: &Report,
     full: bool,
@@ -405,14 +412,7 @@ fn format_text(
         let pct = if report.total_sloc > 0 {
             (lang.sloc as f64 / report.total_sloc as f64) * 100.0
         } else { 0.0 };
-        let name_field = format!("{:12}", lang.name);
-        let name_field = match logo_colors(&lang.name) {
-            Some(lc) => match lc.bg {
-                Some(bg) => colors.on(&name_field, lc.fg, bg),
-                None => colors.fg(&name_field, lc.fg),
-            },
-            None => name_field,
-        };
+        let name_field = colored_name_field(&lang.name, &colors);
         let sloc = format!("{:>10}", lang.sloc);
         let files = format!("{:>8}", lang.files);
         let leaf = format!("{:>12}", human_tokens(lang.leaf_tokens));
@@ -530,14 +530,7 @@ pub fn format_history(
     if !report.by_language.is_empty() {
         out.push_str("\nChanged lines by language:\n\n");
         for lang in &report.by_language {
-            let name_field = format!("{:12}", lang.name);
-            let name_field = match logo_colors(&lang.name) {
-                Some(lc) => match lc.bg {
-                    Some(bg) => colors.on(&name_field, lc.fg, bg),
-                    None => colors.fg(&name_field, lc.fg),
-                },
-                None => name_field,
-            };
+            let name_field = colored_name_field(&lang.name, &colors);
             out.push_str(&format!(
                 "{} +{:>8}  -{:>8}  {:>12} tokens\n",
                 name_field, lang.added_lines, lang.removed_lines, human_tokens(lang.changed_tokens)
@@ -660,9 +653,9 @@ mod tests {
         for ncols in 1..=6 {
             let labels = ["A", "B", "C", "D", "E", "F"];
             let mut cols = Vec::new();
-            for i in 0..ncols {
+            for (i, label) in labels.iter().enumerate().take(ncols) {
                 let g = if i % 2 == 0 { "G1" } else { "G2" };
-                cols.push(col(g, labels[i], &format!("{i}.5 x"), "2.0 person-months", "3", "4.0 months"));
+                cols.push(col(g, label, &format!("{i}.5 x"), "2.0 person-months", "3", "4.0 months"));
             }
             let out = render_schedule_table(&cols, &Colors::force(false));
             let lines: Vec<String> = out.lines().map(csi_strip).filter(|l| !l.trim().is_empty()).collect();
@@ -704,8 +697,8 @@ mod tests {
         let find_dot = |l: &str, nth: usize| {
             l.char_indices().filter(|(_, c)| *c == '.').nth(nth).map(|(i, _)| i)
         };
-        let dots: Vec<Option<usize>> = (0..2).map(|k| find_dot(&metric, k)).collect();
-        let sdots: Vec<Option<usize>> = (0..2).map(|k| find_dot(&schedule, k)).collect();
+        let dots: Vec<Option<usize>> = (0..2).map(|k| find_dot(metric, k)).collect();
+        let sdots: Vec<Option<usize>> = (0..2).map(|k| find_dot(schedule, k)).collect();
         assert_eq!(dots[0], sdots[0], "col A dot misaligned:\n{metric}\n{schedule}");
         assert_eq!(dots[1], sdots[1], "col B dot misaligned:\n{metric}\n{schedule}");
     }

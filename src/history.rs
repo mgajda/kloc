@@ -1,9 +1,9 @@
-//! Git-history analysis: walk a repository's commit history and count the
-//! tokens changed (added + modified + removed) per language, then estimate
-//! the effort and the Claude-plan time to process those tokens.
+//! Git-history analysis: count the tokens changed per language in a
+//! repository's commit history, then estimate the effort and the AI-plan time
+//! to process those tokens.
 //!
-//! The history is obtained by streaming `git log -p` — no library dependency,
-//! so no installation, and git is guaranteed present for any repo.
+//! Stream `git log -p` for the history — no library dependency, so nothing to
+//! install.
 
 use std::collections::BTreeMap;
 use std::io::BufRead;
@@ -13,10 +13,8 @@ use std::process::{Command, Stdio};
 use crate::{LanguageFilter, TokenCounts};
 
 /// The token caps of an AI platform: a monotonic list of `(tokens, duration)`
-/// breakpoints. The 5-hour window allowance is the first point; larger caps
-/// (daily / weekly / monthly) follow. AI processing time is gated by these
-/// caps (not a linear tokens-per-hour rate): the effective load is
-/// decomposed into whole cap periods.
+/// breakpoints. AI processing time is gated by these caps, not a linear
+/// tokens-per-hour rate.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AiCaps {
     /// `(tokens, duration_secs)` breakpoints, strictly increasing in tokens.
@@ -31,16 +29,14 @@ impl AiCaps {
 }
 
 
-/// Estimated ratio of input tokens consumed while debugging to output tokens
-/// written. Producing N output tokens of code typically needs 3–5× N input
-/// tokens for normal projects, 10–20× for complex reasoning.
-/// `effective_tokens` uses this as `(1 + multiplier)`.
+/// Effective input tokens for N output tokens: N × (1 + multiplier).
+/// Debugging typically consumes 3–5× the output tokens, 10–20× for complex
+/// reasoning.
 pub fn effective_tokens(tokens: u64, multiplier: f64) -> u64 {
     (tokens as f64 * (1.0 + multiplier)).round() as u64
 }
 
-/// Elapsed seconds to process `tokens` of output code on the default plan
-/// (Max 20x), gated by the plan caps.
+/// Elapsed seconds to process `tokens` on the default plan (Max 20x).
 pub fn ai_time_seconds(tokens: u64) -> f64 {
     let cfg = crate::ai_config::default_config();
     let p = cfg.platforms.first().expect("default config has a platform");
@@ -79,8 +75,8 @@ pub fn ai_time_seconds_with_caps(tokens: u64, caps: &AiCaps, multiplier: f64) ->
     acc_secs
 }
 
-/// Human-readable AI duration from an effective token load, decomposed into
-/// whole cap periods (largest first) plus the remainder as minutes/seconds.
+/// Human-readable AI duration, decomposed into whole cap periods (largest
+/// first) plus the remainder.
 pub fn ai_duration(tokens: u64, caps: &AiCaps, multiplier: f64) -> String {
     let mut effective = effective_tokens(tokens, multiplier);
     let mut parts: Vec<String> = Vec::new();
@@ -188,31 +184,26 @@ pub struct HistoryReport {
     pub commits: u64,
     /// Added lines in parsed languages (contribute to effort).
     pub total_added_lines: u64,
-    /// Removed lines in parsed languages.
     pub total_removed_lines: u64,
-    /// All added diff lines including unparsed/generated files.
+    /// All added/removed diff lines including unparsed/generated files.
     pub all_added_lines: u64,
-    /// All removed diff lines including unparsed/generated files.
     pub all_removed_lines: u64,
     pub total_changed_tokens: u64,
     pub by_language: Vec<LanguageHistoryTotal>,
     pub ai_estimates: Vec<AiEstimate>,
     pub llm_changed_tokens: Option<TokenCounts>,
-    /// Effort/schedule models estimated from the parsed diff-added lines.
+    /// Schedule models estimated from the parsed diff-added lines.
     pub schedule: crate::schedule::ScheduleReport,
-    /// Aggregated Halstead metrics from the diff added/removed source.
     pub halstead: Option<crate::complexity::HalsteadMetrics>,
-    /// Human-oriented tree-sitter token count estimated from parsed diff LOC
-    /// (≈4 tokens per added line — the midpoint of 200–2000 tokens per
-    /// 50–500 LOC).
+    /// Tree-sitter token count ≈ 4 × added lines (midpoint of 200–2000
+    /// tokens per 50–500 LOC/day).
     pub leaf_tokens: u64,
 }
 
 /// Run the history analysis. `paths` must point inside a git work tree.
 ///
 /// `from`/`to` select a commit range (`from..to`, or `from..` to the current
-/// branch tip). With neither given, the whole history from the initial
-/// commit(s) is analysed.
+/// branch tip). With neither, the whole history is analysed.
 pub fn run_history(
     paths: &[std::path::PathBuf],
     filter: &LanguageFilter,
@@ -227,15 +218,13 @@ pub fn run_history(
     let reader = std::io::BufReader::new(stream);
 
     let mut commits: u64 = 0;
-    // Per-commit buffers, flushed to the tokenizer at each commit boundary to
-    // keep memory bounded by a single commit's diff.
+    // Flushed to the tokenizer at each commit boundary, so memory stays
+    // bounded by a single commit's diff.
     let mut per_lang: BTreeMap<String, PerLang> = BTreeMap::new();
-    // Aggregated Halstead metrics per language, summed across all commits.
+    // Summed across all commits.
     let mut halstead_agg: BTreeMap<String, crate::complexity::HalsteadMetrics> = BTreeMap::new();
-    // Effort-relevant lines: only parsed languages contribute to the
-    // schedule estimate. Unparsed/generated files are counted separately
-    // (`all_added`/`all_removed`) so the totals reflect every diff line, but
-    // they never feed the COCOMO/Putnam/Halstead effort models.
+    // Only parsed languages feed the schedule estimate. Unparsed/generated
+    // files are counted in `all_added`/`all_removed` but never in effort.
     let mut total_added = 0u64;
     let mut total_removed = 0u64;
     let mut all_added = 0u64;
@@ -262,11 +251,9 @@ pub fn run_history(
         } else if line.starts_with("+++") || line.starts_with("---") {
             continue;
         } else if let Some(content) = line.strip_prefix('+') {
-            // Only lines within a detected, filter-matching language are
-            // parsed; the rest are counted (all_added) but not in effort.
-            // Blank added lines don't contribute to SLOC/effort, matching the
-            // source-tree SLOC count, but their bytes still feed the token
-            // and Halstead accumulators.
+            // Blank added lines don't add to SLOC (matching the source-tree
+            // count), but their bytes still feed the token and Halstead
+            // accumulators.
             let is_parsed = current_spec.is_some_and(|s| filter.matches(s));
             all_added += 1;
             if is_parsed {
@@ -321,7 +308,7 @@ pub fn run_history(
         changed_tokens: p.added_tokens + p.removed_tokens,
     }).collect();
 
-    let halstead = aggregate_halstead(&halstead_agg);
+    let halstead = crate::complexity::aggregate_halstead(halstead_agg.values());
 
     Ok(HistoryReport {
         range: build_range(from, to).unwrap_or_else(|| "full history".to_string()),
@@ -347,14 +334,6 @@ pub fn run_history(
     })
 }
 
-/// Sum per-language Halstead operator/operand counts and derive the derived
-/// metrics (volume, difficulty, effort, time, bugs).
-fn aggregate_halstead(
-    agg: &BTreeMap<String, crate::complexity::HalsteadMetrics>,
-) -> Option<crate::complexity::HalsteadMetrics> {
-    crate::complexity::aggregate_halstead(agg.values())
-}
-
 #[derive(Default)]
 struct PerLang {
     added_lines: u64,
@@ -368,10 +347,9 @@ struct PerLang {
     files: std::collections::HashSet<String>,
 }
 
-/// Flush a commit's buffered bytes through the LLM tokenizer and fold the
-/// line/token counts into the running totals. Resets each language's byte
-/// buffers so the next commit starts clean (memory stays bounded by one
-/// commit's diff).
+/// Flush a commit's buffered bytes through the tokenizer and fold the
+/// line/token counts into the running totals. Reset the byte buffers so
+/// memory stays bounded by one commit's diff.
 fn flush(
     per_lang: &mut BTreeMap<String, PerLang>,
     halstead_agg: &mut BTreeMap<String, crate::complexity::HalsteadMetrics>,
@@ -414,9 +392,8 @@ fn flush(
 
 /// Run `git log -p` and return its stdout as a pipe.
 ///
-/// `from`/`to` build a git revision range using native git semantics
-/// (`from` is exclusive): `from..to`, `from..` (to the current branch tip),
-/// or no revision argument (full history from the initial commit(s)).
+/// `from` is exclusive: the range is `from..to`, `from..` (to the branch
+/// tip), or no revision argument (full history).
 fn git_log_p(root: &Path, from: Option<&str>, to: Option<&str>) -> Result<impl std::io::Read, String> {
     let mut cmd = Command::new("git");
     cmd.arg("log")

@@ -115,9 +115,8 @@ pub struct PutnamBreakdown {
 }
 
 /// Halstead's own schedule is single-developer (T = E/18 s), which is absurd
-/// for large codebases. We reuse the COCOMO II schedule/effort relationship
-/// (TDEV = C·PM^F, F = 0.28) to derive a parallelizable schedule and the
-/// optimal team size that achieves it.
+/// for large codebases. Derive a parallelizable schedule and team size from
+/// the COCOMO II relationship (TDEV = C·PM^F, F = 0.28) instead.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct HalsteadBreakdown {
     pub effort_person_months: f64,
@@ -141,12 +140,11 @@ pub fn estimate(sloc: u64, halstead_effort: f64) -> ScheduleReport {
     };
 
     let pm2 = cocomo_ii_person_months(ksloc);
+    let sm2 = cocomo_ii_schedule_months(pm2);
     let cocomo_ii = CocomoIiBreakdown {
         effort_person_months: pm2,
-        schedule_months: cocomo_ii_schedule_months(pm2),
-        avg_people: if cocomo_ii_schedule_months(pm2) > 0.0 {
-            pm2 / cocomo_ii_schedule_months(pm2)
-        } else { 0.0 },
+        schedule_months: sm2,
+        avg_people: if sm2 > 0.0 { pm2 / sm2 } else { 0.0 },
     };
 
     let person_years = pm2 / 12.0;
@@ -157,15 +155,13 @@ pub fn estimate(sloc: u64, halstead_effort: f64) -> ScheduleReport {
         avg_people: if py > 0.0 { person_years / py } else { 0.0 },
     };
 
-    // Halstead: single-developer time is absurd for large codebases, so we
-    // derive a parallelizable schedule and optimal team size from the COCOMO II
-    // schedule relationship.
     let halstead_pm = halstead_person_months(halstead_effort);
+    let hsm = cocomo_ii_schedule_months(halstead_pm);
     let halstead = HalsteadBreakdown {
         effort_person_months: halstead_pm,
-        schedule_months: cocomo_ii_schedule_months(halstead_pm),
-        avg_people: if halstead_pm > 0.0 && cocomo_ii_schedule_months(halstead_pm) > 0.0 {
-            halstead_pm / cocomo_ii_schedule_months(halstead_pm)
+        schedule_months: hsm,
+        avg_people: if halstead_pm > 0.0 && hsm > 0.0 {
+            halstead_pm / hsm
         } else { 0.0 },
         single_developer_seconds: halstead_effort / 18.0,
     };

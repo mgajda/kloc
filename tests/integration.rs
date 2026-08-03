@@ -1,7 +1,7 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::fs;
 
-fn write_file(dir: &PathBuf, name: &str, content: &[u8]) {
+fn write_file(dir: &Path, name: &str, content: &[u8]) {
     fs::write(dir.join(name), content).unwrap();
 }
 
@@ -229,7 +229,7 @@ fn integration_filter_only_programming() {
         only_programming: true,
         only_machine: false,
     };
-    let report = kloc::run(&[dir.clone()], &filter, &test_opts());
+    let report = kloc::run(std::slice::from_ref(&dir), &filter, &test_opts());
     assert_eq!(report.total_sloc, 1, "only Rust should be counted (1 sloc)");
     assert_eq!(report.by_language.len(), 1, "only Rust in results");
     assert_eq!(report.by_language[0].name, "Rust");
@@ -248,7 +248,7 @@ fn integration_filter_only_machine() {
         only_programming: false,
         only_machine: true,
     };
-    let report = kloc::run(&[dir.clone()], &filter, &test_opts());
+    let report = kloc::run(std::slice::from_ref(&dir), &filter, &test_opts());
     assert!(report.total_sloc > 0, "machine languages should have sloc");
     assert!(report.by_language.iter().any(|l| l.name == "JSON"), "JSON should be included");
     assert!(report.by_language.iter().all(|l| l.name != "Rust"), "Rust should be excluded");
@@ -267,7 +267,7 @@ fn integration_filter_only_specific_languages() {
         only_programming: false,
         only_machine: false,
     };
-    let report = kloc::run(&[dir.clone()], &filter, &test_opts());
+    let report = kloc::run(std::slice::from_ref(&dir), &filter, &test_opts());
     assert_eq!(report.total_sloc, 2, "only Python should be counted (2 sloc)");
     assert_eq!(report.by_language.len(), 1);
     assert_eq!(report.by_language[0].name, "Python");
@@ -285,7 +285,7 @@ fn integration_filter_exclude_languages() {
         only_programming: false,
         only_machine: false,
     };
-    let report = kloc::run(&[dir.clone()], &filter, &test_opts());
+    let report = kloc::run(std::slice::from_ref(&dir), &filter, &test_opts());
     assert_eq!(report.total_sloc, 1, "only Rust should be counted");
     assert_eq!(report.by_language.len(), 1);
     assert_eq!(report.by_language[0].name, "Rust");
@@ -303,7 +303,7 @@ fn integration_filter_only_programming_and_only() {
         only_programming: false,
         only_machine: false,
     };
-    let report = kloc::run(&[dir.clone()], &filter, &test_opts());
+    let report = kloc::run(std::slice::from_ref(&dir), &filter, &test_opts());
     assert_eq!(report.total_sloc, 1, "only Rust should be counted");
     assert_eq!(report.by_language[0].name, "Rust");
 }
@@ -314,7 +314,7 @@ fn integration_json_parseable() {    let dir = test_dir("json_parse");
 
     let json_str = {
         let filter = default_filter();
-        let report = kloc::run(&[dir.clone()], &filter, &test_opts());
+        let report = kloc::run(std::slice::from_ref(&dir), &filter, &test_opts());
         kloc::output::format(&report, &kloc::output::OutputFormat::Json, true, test_colors(), &test_ai_config(), None)
     };
 
@@ -342,7 +342,7 @@ fn integration_ignore_default_dirs() {
     let filter = default_filter();
     let mut opts = test_opts();
     opts.ignore = kloc::walker::DirIgnore::new(true);
-    let report = kloc::run(&[dir.clone()], &filter, &opts);
+    let report = kloc::run(std::slice::from_ref(&dir), &filter, &opts);
     // Only src/main.rs is counted (default ignores exclude the others).
     assert_eq!(report.total_files, 1, "only src/main.rs counted");
     assert_eq!(report.total_sloc, 1);
@@ -362,18 +362,18 @@ fn integration_ignore_custom_and_no_ignore() {
     // unless we add "gen".
     let mut opts = test_opts();
     opts.ignore = kloc::walker::DirIgnore::new(true);
-    let report = kloc::run(&[dir.clone()], &filter, &opts);
+    let report = kloc::run(std::slice::from_ref(&dir), &filter, &opts);
     assert_eq!(report.total_files, 2, "defaults don't ignore src or gen");
 
     // Add "gen" to ignores → only src counted.
     opts.ignore.add("gen");
-    let report = kloc::run(&[dir.clone()], &filter, &opts);
+    let report = kloc::run(std::slice::from_ref(&dir), &filter, &opts);
     assert_eq!(report.total_files, 1, "gen ignored after add");
 
     // Remove "node_modules" (a default) and disable defaults for gen check.
     let mut opts = test_opts();
     opts.ignore = kloc::walker::DirIgnore::new(false);
-    let report = kloc::run(&[dir.clone()], &filter, &opts);
+    let report = kloc::run(std::slice::from_ref(&dir), &filter, &opts);
     assert_eq!(report.total_files, 2, "no defaults, both counted");
 }
 
