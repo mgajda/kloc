@@ -42,9 +42,8 @@ pub fn count(source: &[u8], spec: &LanguageSpec) -> CountResult {
 
     let nodes = count_nodes(&root);
 
-    // Single-pass line-start index so line lookups are O(1) instead of a
-    // per-line / per-range rescans of the whole file (which is O(n²) on large
-    // files and dominated the runtime for big codebases).
+    // Build a line-start index so line lookups are O(1); a per-range rescan
+    // of the whole file is O(n²) on large codebases.
     let line_starts = line_starts(source);
     let total_lines = line_starts.len();
     let mut line_is_comment = vec![false; total_lines];
@@ -57,8 +56,7 @@ pub fn count(source: &[u8], spec: &LanguageSpec) -> CountResult {
         }
     }
 
-    // Merge overlapping/adjacent comment intervals (tree-sitter ranges are
-    // already disjoint, but adjacent comments collapse into one for the sweep).
+    // Merge adjacent intervals; the sweep below expects disjoint, sorted ones.
     let mut merged: Vec<(usize, usize)> = Vec::new();
     for &(s, e) in &comment_ranges {
         if let Some(last) = merged.last_mut()
@@ -72,9 +70,8 @@ pub fn count(source: &[u8], spec: &LanguageSpec) -> CountResult {
     let mut sloc = 0u64;
     let mut comments = 0u64;
     let mut blanks = 0u64;
-    // Persistent cursor into `merged`, advanced monotonically as we sweep the
-    // comment lines in order. This keeps the whole scan linear — a fresh
-    // per-line scan would be O(comment_lines × intervals).
+    // Monotonic cursor into `merged` keeps the scan linear; a per-line scan
+    // of the intervals would be O(lines × intervals).
     let mut ci = 0usize;
 
     for (line_idx, is_comment) in line_is_comment.iter().enumerate() {
@@ -154,10 +151,8 @@ fn count_nodes(root: &Node) -> NodeCounts {
 }
 
 /// Push `node`'s children onto `stack` right-to-left so they pop in
-/// left-to-right order. Uses a tree cursor — O(children) — instead of
-/// `node.child(i)` per index, which rescans the children array from the
-/// start for each `i` (O(children²) on a node with many children, e.g. a
-/// flat file's root).
+/// left-to-right order. A tree cursor is O(children); `node.child(i)` per
+/// index rescans the children array from the start each time, O(children²).
 fn push_children_reversed<'tree>(stack: &mut Vec<Node<'tree>>, node: &Node<'tree>) {
     let mut child = node.walk();
     if !child.goto_first_child() {
@@ -173,9 +168,8 @@ fn push_children_reversed<'tree>(stack: &mut Vec<Node<'tree>>, node: &Node<'tree
     stack.extend(children.into_iter().rev());
 }
 
-/// Pre-order walk collecting comment ranges (children pushed right-to-left so
-/// they pop left-to-right, matching the old recursion's byte order). Iterative
-/// so deeply nested trees can't overflow the call stack.
+/// Pre-order walk collecting comment ranges. Iterative so deep nesting cannot
+/// overflow the call stack.
 fn collect_comment_ranges(
     root: &Node,
     comment_kinds: &HashSet<&str>,

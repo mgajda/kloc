@@ -1,16 +1,14 @@
 # kloc — count lines of code and code complexity via universal AST parsing
 
-New approach to counting lines of code and code complexity based on a
-universal AST parsing engine — tree-sitter.  Makes the code lean and easy
-to maintain by depending on the diligent work of the tree-sitter community.
+kloc counts lines of code and code complexity with tree-sitter, a universal
+AST parsing engine. It reuses the tree-sitter community's parsers instead of
+writing its own per-language lexers. This keeps kloc small and easy to
+maintain.
 
-`sloccount` (David A. Wheeler) and `cloc` (Al Danial) are Debian/Ubuntu
-packages with a similar purpose, but not using universal parsers.
-I found sloccount invaluable in understanding the pace of my own work
-and the size of other projects in the past. However I was disappointed
-that it received no maintenance.
-`cloc` on the other hand seems slow, and uses regular expressions,
-which make me trust results less than AST parser used daily by developers.
+`sloccount` and `cloc` are Debian/Ubuntu packages with a similar purpose.
+They do not use universal parsers. `sloccount` receives no maintenance.
+`cloc` is slow and uses regular expressions. I trust the AST parsers that
+developers use daily more than regular expressions.
 
 ## Build
 
@@ -30,11 +28,10 @@ cargo install --path .
 
 Binary is installed as `~/.cargo/bin/kloc`.
 
-kloc's greater precision comes at a price — the binary exceeds 100 MB
-when built with all supported languages, because each language bundles
-a tree-sitter parser (a C library compiled into the binary).  Default
-features include only programming languages; enable `all-languages`
-for the full set.
+The binary exceeds 100 MB when built with all supported languages, because
+each language bundles a tree-sitter parser (a C library compiled into the
+binary). Default features include only programming languages; enable
+`all-languages` for the full set.
 
 ## Use
 
@@ -68,23 +65,25 @@ Add or remove patterns with `--ignore` / `--no-ignore`, or disable the whole
 set with `--no-ignore-defaults`. Patterns match a directory name (not a path),
 so `--ignore dist` skips any `dist/` at any depth.
 
-The schedule/effort block is a grouped table: rows are Metric / Effort / Team
-size / Schedule; columns are the estimation methodologies, grouped into
-families (LoC-driven, AST-driven, AI), each column a distinct colour. The
-**AI** columns are LLM-based: their metric and effort are token counts (with an
-ISO magnitude suffix, e.g. `595k tokens`), and their schedule is the
-platform's plan-cap time to process those tokens, counted by plan caps
-(5h window / day / week / month) rather than a linear rate (no team size).
-The **Halstead** column shows an *optimal team size* derived from the COCOMO II
-schedule relationship, so its schedule is the parallelized time (not the
-single-developer `E/18s` figure, which is shown separately as "Time to
-implement"). Duration units run up to years, kya (thousands of years), and
-Mya (millions of years).
+The schedule table groups estimation methodologies into families
+(LoC-driven, AST-driven, AI), each column a distinct colour. Rows are
+Metric / Effort / Team size / Schedule.
+
+The **AI** columns count tokens for metric and effort (ISO magnitude suffix,
+e.g. `595k tokens`). Schedule is the platform's plan-cap time, counted by
+caps (5h window / day / week / month) rather than a linear rate. AI columns
+have no team size.
+
+The **Halstead** column derives an optimal team size from the COCOMO II
+schedule relationship. Its schedule is the parallelized time, not the
+single-developer `E/18s` figure (shown separately as "Time to implement").
+Duration units run up to years, kya (thousands of years), and Mya (millions
+of years).
 
 Output is concise by default: per-language SLOC, total code/comment lines,
 token counts, Halstead time-to-implement, average cyclomatic complexity,
-a schedule table (rows = Schedule/Effort/Team size, columns = methodologies),
-and a performance summary (GB/s, files/s, declarations/s, total runtime).
+the schedule table, and a performance summary (GB/s, files/s, declarations/s,
+total runtime).
 
 When stdout is a terminal, each language is shown in its GitHub logo colour
 (from `ozh/github-colors`; unique in both hex and the 256-colour palette,
@@ -103,8 +102,9 @@ Token counts are always computed:
   - **Claude Sonnet** — the official Anthropic `claude.json` (same file as
     in `@anthropic-ai/tokenizer`, MIT), matching the reference `countTokens`
     including its NFKC normalization.
-  These lines only appear when the binary was built with
-  `cargo install --path . --features tokens`.
+
+The LLM token counts appear only when the binary is built with
+`cargo install --path . --features tokens`.
 
 ## History mode
 
@@ -127,12 +127,12 @@ overrides every platform's effort multiplier at once.
 Each platform entry has `name`, a monotonic `caps` list of `(tokens,
 duration_seconds)` breakpoints, and an optional `multiplier` (AI effort:
 effective tokens = tokens × (1 + multiplier); 3–5x standard, 10–20x complex
-reasoning). The figures are **approximate calibration**: Anthropic's help
-centre publishes only the relative plan multiples (Max 5x = 5× Pro, Max 20x =
-20× Pro), not absolute token numbers; the Pro baseline (~44k tokens per
-5-hour window) follows the widely reported figure (faros.ai, Dec 2025; Claude
-Code 5-hour limits were doubled in May 2026). DeepSeek V4 is estimated from
-OpenCode Go usage limits.
+reasoning). The figures are approximate calibration: Anthropic publishes
+only relative plan multiples (Max 5x = 5× Pro, Max 20x = 20× Pro), not
+absolute token numbers. The Pro baseline (~44k tokens per 5-hour window) is
+the widely reported figure (faros.ai, Dec 2025). Claude Code 5-hour limits
+were doubled in May 2026. DeepSeek V4 is estimated from OpenCode Go usage
+limits.
 
 ## Testing
 

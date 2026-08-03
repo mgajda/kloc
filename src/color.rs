@@ -103,9 +103,8 @@ impl Colors {
     }
 }
 
-/// A language's colours: the foreground is the GitHub colour, and `bg` is a
-/// derived darker shade used as the background for two-tone rendering (the
-/// "darker background, lighter foreground" treatment requested).
+/// A language's colours: the foreground is the GitHub colour; `bg` is a
+/// derived darker shade used as the background for two-tone rendering.
 #[derive(Debug, Clone, Copy)]
 pub struct LogoColors {
     pub fg: Rgb,
@@ -117,9 +116,8 @@ pub struct LogoColors {
 /// hex and as the nearest 256-colour palette index, so any two languages
 /// render distinctly even on 256-colour terminals.
 pub fn logo_colors(name: &str) -> Option<LogoColors> {
-    // Base is the GitHub brand colour (all distinct). The foreground is the
-    // brand colour lightened so it reads on a dark terminal background; the
-    // one well-known two-tone logo (Python) renders its dark blue as the
+    // Base is the GitHub brand colour (all distinct). Lighten the foreground
+    // so it reads on dark terminals; Python's brand blue becomes the
     // background under the lightened foreground.
     let (base, explicit_bg) = match name {
         // Programming languages.

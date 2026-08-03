@@ -1,10 +1,8 @@
 //! Minimal stderr logger on an error/warning/info/debug scale.
 //!
-//! The threshold defaults to [`LogLevel::Warning`]: errors and warnings are
-//! always shown, while info/debug diagnostics (summary stats, per-file timing,
-//! parse diagnostics) only appear when the level is lowered with `--verbose`
-//! (`-v` → info, `-vv` → debug). The threshold is a process-wide atomic so it
-//! is safe to check from rayon worker threads.
+//! Default threshold is [`LogLevel::Warning`]; `-v` lowers it to info, `-vv`
+//! to debug. The threshold is a process-wide atomic, so it is safe to check
+//! from rayon worker threads.
 
 use std::sync::atomic::{AtomicU8, Ordering};
 

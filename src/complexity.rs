@@ -18,7 +18,7 @@ pub struct HalsteadMetrics {
 }
 
 impl HalsteadMetrics {
-    /// Add another metrics' raw counts (operators/operands) into this one.
+    /// Add another metric's raw operator/operand counts into this one.
     pub fn accumulate(&mut self, other: &HalsteadMetrics) {
         self.distinct_operators += other.distinct_operators;
         self.distinct_operands += other.distinct_operands;
@@ -197,15 +197,14 @@ pub fn analyze(source: &[u8], spec: &LanguageSpec) -> ComplexityResult {
         language: &'a tree_sitter::Language,
     }
 
-    /// Walk the whole tree iteratively with an explicit stack, so the
-    /// traversal cost and memory are bounded by tree size — not tree depth
-    /// (a recursive walk overflowed the call stack on ~16k-deep nesting).
+    /// Walk the tree iteratively with an explicit stack, so cost and memory
+    /// are bounded by tree size, not depth (a recursive walk overflowed the
+    /// call stack at ~16k-deep nesting).
     ///
-    /// Each node's pre-visit passes down the kind of its *visible* parent so
-    /// children never have to call `node.parent()` (which walks down from the
-    /// root — O(depth) per node, and super-linear on deeply nested sources).
-    /// A `Exit` frame is pushed after a node's children to decrement the
-    /// function-nesting counter when the node was itself a function.
+    /// Each node's pre-visit passes down the kind of its *visible* parent, so
+    /// children never call `node.parent()` (O(depth) per node, super-linear
+    /// on deeply nested sources). An `Exit` frame after a node's children
+    /// decrements the function-nesting counter when the node was a function.
     fn walk_tree(root: tree_sitter::Node, source: &[u8], state: &mut WalkState) {
         enum Frame<'t> {
             Visit { node: tree_sitter::Node<'t>, parent_kind: &'static str },
@@ -252,8 +251,7 @@ pub fn analyze(source: &[u8], spec: &LanguageSpec) -> ComplexityResult {
             let child_parent_kind: &'static str =
                 if state.language.node_kind_is_visible(node.kind_id()) { kind } else { parent_kind };
 
-            // Collect children with a cursor, as the recursion did, so hidden
-            // nodes are visited exactly as before.
+            // Collect children with a cursor so hidden nodes are visited too.
             let mut child = node.walk();
             if child.goto_first_child() {
                 let mut children: Vec<tree_sitter::Node> = Vec::new();

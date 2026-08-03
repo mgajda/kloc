@@ -10,9 +10,8 @@ pub struct FileEntry {
     pub language: &'static LanguageSpec,
 }
 
-/// Directories ignored by default: build-cache / dependency directories that
-/// are not project source code. Users can add or remove patterns, or disable
-/// the whole default set.
+/// Directories ignored by default: build-cache and dependency directories.
+/// Users can add or remove patterns, or disable the whole set.
 const DEFAULT_IGNORED_DIRS: &[&str] = &[
     ".git",
     "node_modules",
@@ -28,9 +27,8 @@ const DEFAULT_IGNORED_DIRS: &[&str] = &[
     "target",
 ];
 
-/// Which directory names to skip while walking. Patterns match a single
-/// directory name (not a path), so a pattern like "dist" ignores any `dist/`
-/// directory at any depth.
+/// Directory names to skip while walking. Patterns match one name (not a
+/// path): "dist" ignores any `dist/` at any depth.
 #[derive(Debug, Clone, Default)]
 pub struct DirIgnore {
     /// Names to skip. Start from the defaults unless `defaults` is false.
