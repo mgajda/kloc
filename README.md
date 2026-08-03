@@ -142,6 +142,10 @@ generate random tree-sitter-parseable Rust code: each run uses a fresh seed
 `KLOK_TEST_SEED` env var to replay a specific seed deterministically. See
 `AGENTS.md`.
 
+Local tests never build the container image or run podman; those builds are
+CI-only (`package.yml`, on tags or dispatch) or the opt-in
+`./build-container.sh` script.
+
 ## Packaging status
 
 On a tag push (`v*`) CI builds a Debian `.deb` and an RPM and uploads them as
