@@ -103,16 +103,13 @@ Token counts are always computed:
     in `@anthropic-ai/tokenizer`, MIT), matching the reference `countTokens`
     including its NFKC normalization.
 
-The LLM token counts appear only when the binary is built with
-`cargo install --path . --features tokens`.
-
 ## History mode
 
 `kloc --history` streams `git log -p` and counts the tokens changed
 (added + modified + removed) across the repository's commit history, per
 language, then estimates how long it would take to process those tokens on
-each configured AI platform. Build with `--features tokens` so the
-changed-token count is real; without it the token counts are zero.
+each configured AI platform. The changed-token count uses the embedded LLM
+tokenizers (the default build).
 
 ## AI-platform config
 
@@ -146,4 +143,6 @@ generate random tree-sitter-parseable Rust code: each run uses a fresh seed
 
 ## Packaging status
 
-Debian, RPM, Podman, and Snap packages are not yet available — contributions welcome.
+On a tag push (`v*`) CI builds a Debian `.deb` and an RPM and uploads them as
+build artifacts, and pushes the container image to GHCR. A Snap package is not
+yet available.
