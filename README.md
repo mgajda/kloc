@@ -12,7 +12,7 @@ developers use daily more than regular expressions.
 
 ## Build
 
-Requires Rust 1.85+.
+Requires Rust 1.89+.
 
 ```sh
 git clone https://github.com/mgajda/kloc.git
@@ -147,3 +147,29 @@ generate random tree-sitter-parseable Rust code: each run uses a fresh seed
 On a tag push (`v*`) CI builds a Debian `.deb` and an RPM and uploads them as
 build artifacts, and pushes the container image to GHCR. A Snap package is not
 yet available.
+
+## Building packages
+
+Debian, RPM, and container packages are built by CI on tag pushes (`v*`) or
+manual dispatch (`.github/workflows/package.yml`). These builds are expensive
+and opt-in — they never run on ordinary `cargo build` or `cargo test`. Each
+compiles ~40 tree-sitter grammars plus the gigatoken tokenizer with fat LTO,
+which needs ~8 GB of RAM and 15-25 minutes on a cold build cache.
+
+| Build | Cold runtime | Peak RAM |
+|---|---|---|
+| `cargo build --release` | ~10-15 min (est.) | ~8 GB |
+| `podman build -f Containerfile` | ~15-20 min (est.) | ~8 GB |
+| `rpmbuild -ba` (Fedora pod) | ~15-25 min (est.) | ~8 GB |
+
+The container build reached its dependency-compile stage in ~10-13 min cold
+on this machine (2026-08-03) before the host ran out of RAM at the fat-LTO
+link; the full-build estimate assumes ~8 GB free. Warm builds reuse the
+`target/` cache and finish much faster. A host without ~8 GB free fails at
+the fat-LTO link stage.
+
+These builds are gated so they are never run by accident:
+- **CI**: `package.yml` triggers only on `v*` tags or `workflow_dispatch`.
+- **Local**: `./build-container.sh [--measure]` is the opt-in container
+  build. It prints the estimated runtime before building, and `--measure`
+  also prints the elapsed time and peak RSS via `/usr/bin/time`.
