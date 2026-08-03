@@ -55,7 +55,7 @@ impl Report {
                 ai_tokens: ai,
             })
             .collect();
-        by_language.sort_by(|a, b| b.sloc.cmp(&a.sloc));
+        by_language.sort_by_key(|l| std::cmp::Reverse(l.sloc));
 
         let total_sloc = by_language.iter().map(|l| l.sloc).sum();
         let total_comments = by_language.iter().map(|l| l.comments).sum();
