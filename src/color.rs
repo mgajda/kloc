@@ -282,4 +282,43 @@ mod tests {
             "background must be darker than foreground"
         );
     }
+
+    #[test]
+    fn from_mode_always_and_never() {
+        assert!(Colors::from_mode(ColorMode::Always).enabled);
+        assert!(!Colors::from_mode(ColorMode::Never).enabled);
+        // Auto in a test (stdout is not a terminal) is disabled.
+        assert!(!Colors::from_mode(ColorMode::Auto).enabled);
+    }
+
+    #[test]
+    fn wrap_enabled_emits_ansi() {
+        let c = Colors::force(true);
+        assert_eq!(c.ansi("x", 4), "\x1b[94mx\x1b[0m");
+        assert_eq!(c.gray("g"), "\x1b[90mg\x1b[0m");
+        assert_eq!(c.fg("f", Rgb::hex(0xFF0000)), "\x1b[38;2;255;0;0mf\x1b[0m");
+        assert_eq!(
+            c.on("t", Rgb::hex(0xFFFFFF), Rgb::hex(0x000000)),
+            "\x1b[38;2;255;255;255;48;2;0;0;0mt\x1b[0m"
+        );
+        assert_eq!(c.on_bg256("b", 4, 236), "\x1b[94;48;5;236mb\x1b[0m");
+        // Palette index clamped to 7.
+        assert_eq!(c.ansi("x", 9), "\x1b[97mx\x1b[0m");
+    }
+
+    #[test]
+    fn wrap_disabled_passes_through() {
+        let c = Colors::force(false);
+        assert_eq!(c.ansi("x", 4), "x");
+        assert_eq!(c.gray("g"), "g");
+        assert_eq!(c.fg("f", Rgb::hex(0xFF0000)), "f");
+    }
+
+    #[test]
+    fn lightened_scales_toward_white() {
+        let c = Rgb::hex(0x000000).lightened(0.5);
+        assert_eq!((c.r, c.g, c.b), (128, 128, 128));
+        let white = Rgb::hex(0xFFFFFF).lightened(0.5);
+        assert_eq!((white.r, white.g, white.b), (255, 255, 255));
+    }
 }

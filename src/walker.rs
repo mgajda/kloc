@@ -114,3 +114,67 @@ fn detect(
     };
     registry.detect(path, first_line)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::language::registry;
+
+    #[test]
+    fn walk_skips_hidden_and_ignored_dirs() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::create_dir_all(dir.path().join("target")).unwrap();
+        std::fs::create_dir_all(dir.path().join(".hidden")).unwrap();
+        std::fs::write(dir.path().join("src/a.rs"), b"fn a() {}").unwrap();
+        std::fs::write(dir.path().join("target/b.rs"), b"fn b() {}").unwrap();
+        std::fs::write(dir.path().join(".hidden/c.rs"), b"fn c() {}").unwrap();
+        let ignore = DirIgnore::new(true);
+        let entries = walk_files(&[dir.path().to_path_buf()], registry(), &ignore);
+        let names: Vec<String> = entries
+            .iter()
+            .map(|e| e.path.file_name().unwrap().to_str().unwrap().to_string())
+            .collect();
+        assert_eq!(names, vec!["a.rs"], "must skip target/ and hidden dirs");
+    }
+
+    #[test]
+    fn walk_single_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = dir.path().join("x.rs");
+        std::fs::write(&f, b"fn x() {}").unwrap();
+        let ignore = DirIgnore::new(false);
+        let entries = walk_files(std::slice::from_ref(&f), registry(), &ignore);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].language.name, "Rust");
+    }
+
+    #[test]
+    fn walk_skips_unrecognized_files() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("x.zzunknown"), b"x").unwrap();
+        let ignore = DirIgnore::new(false);
+        let entries = walk_files(&[dir.path().to_path_buf()], registry(), &ignore);
+        assert!(entries.is_empty());
+    }
+
+    #[test]
+    fn dir_ignore_add_remove() {
+        let mut ig = DirIgnore::new(false);
+        assert!(!ig.is_ignored("dist"));
+        ig.add("dist");
+        assert!(ig.is_ignored("dist"));
+        ig.remove("dist");
+        assert!(!ig.is_ignored("dist"));
+    }
+
+    #[test]
+    fn dir_ignore_defaults() {
+        let ig = DirIgnore::new(true);
+        assert!(ig.is_ignored("target"));
+        assert!(ig.is_ignored("node_modules"));
+        assert!(!ig.is_ignored("src"));
+        let none = DirIgnore::new(false);
+        assert!(!none.is_ignored("target"));
+    }
+}

@@ -121,6 +121,16 @@ impl Cache {
         let s = self.stats.lock().unwrap();
         (s.hits, s.misses)
     }
+
+    #[cfg(test)]
+    pub(crate) fn with_dir(dir: PathBuf) -> Self {
+        let _ = std::fs::create_dir_all(&dir);
+        Cache {
+            enabled: true,
+            dir: Some(dir),
+            stats: Mutex::new(CacheStats::default()),
+        }
+    }
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -138,4 +148,127 @@ fn fxhash64(bytes: &[u8]) -> u64 {
         h = h.wrapping_mul(0x100000001B3);
     }
     h
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::complexity::{ComplexityResult, HenryKafuraMetrics, McCabeMetrics};
+    use crate::counter::CountResult;
+
+    fn sample() -> (CountResult, ComplexityResult) {
+        (
+            CountResult {
+                sloc: 1,
+                comments: 2,
+                blanks: 3,
+                nodes: Default::default(),
+            },
+            ComplexityResult {
+                halstead: Default::default(),
+                mccabe: McCabeMetrics::default(),
+                henry_kafura: HenryKafuraMetrics::default(),
+            },
+        )
+    }
+
+    #[test]
+    fn put_then_get_hits() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = Cache::with_dir(dir.path().to_path_buf());
+        let f = dir.path().join("a.rs");
+        std::fs::write(&f, b"fn a() {}").unwrap();
+        let (count, cx) = sample();
+        cache.put(&f, 8, 42, &count, &cx);
+        let got = cache.get(&f, 8, 42).expect("hit after put");
+        assert_eq!(got.0.sloc, 1);
+        assert_eq!(cache.stats(), (1, 0));
+    }
+
+    #[test]
+    fn get_misses_when_mtime_differs() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = Cache::with_dir(dir.path().to_path_buf());
+        let f = dir.path().join("a.rs");
+        std::fs::write(&f, b"x").unwrap();
+        let (count, cx) = sample();
+        cache.put(&f, 1, 42, &count, &cx);
+        assert!(cache.get(&f, 1, 99).is_none(), "stale mtime must miss");
+        assert_eq!(cache.stats(), (0, 1));
+    }
+
+    #[test]
+    fn get_missing_file_misses() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = Cache::with_dir(dir.path().to_path_buf());
+        assert!(cache.get(&dir.path().join("nope.rs"), 1, 1).is_none());
+        assert_eq!(cache.stats(), (0, 1));
+    }
+
+    #[test]
+    fn corrupt_cache_entry_misses() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = Cache::with_dir(dir.path().to_path_buf());
+        let f = dir.path().join("a.rs");
+        std::fs::write(&f, b"x").unwrap();
+        let ep = cache.entry_path(&f).unwrap();
+        std::fs::write(ep, b"{ not json").unwrap();
+        assert!(cache.get(&f, 1, 1).is_none(), "corrupt entry must miss");
+    }
+
+    #[test]
+    fn disabled_cache_never_gets_or_puts() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = Cache::new(false);
+        let f = dir.path().join("a.rs");
+        std::fs::write(&f, b"x").unwrap();
+        let (count, cx) = sample();
+        cache.put(&f, 1, 1, &count, &cx);
+        assert!(cache.get(&f, 1, 1).is_none());
+        assert_eq!(cache.stats(), (0, 0));
+    }
+
+    #[test]
+    fn entry_path_is_stable_and_under_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = Cache::with_dir(dir.path().to_path_buf());
+        let f = dir.path().join("b.rs");
+        std::fs::write(&f, b"y").unwrap();
+        let p1 = cache.entry_path(&f).unwrap();
+        let p2 = cache.entry_path(&f).unwrap();
+        assert_eq!(p1, p2);
+        assert!(
+            p1.starts_with(dir.path()),
+            "entry must live under the cache dir"
+        );
+    }
+
+    #[test]
+    fn entry_path_none_when_disabled() {
+        let cache = Cache::new(false);
+        assert!(cache.entry_path(std::path::Path::new("x.rs")).is_none());
+    }
+
+    #[test]
+    fn fxhash_deterministic() {
+        assert_eq!(fxhash64(b"abc"), fxhash64(b"abc"));
+        assert_ne!(fxhash64(b"abc"), fxhash64(b"abd"));
+    }
+
+    #[test]
+    fn new_with_xdg_env_resolves_dir() {
+        let _g = crate::TestEnvGuard::new(&["XDG_CACHE_HOME"]);
+        _g.set("XDG_CACHE_HOME", "/xdg/cache");
+        let cache = Cache::new(true);
+        let f = std::path::Path::new("/some/project/a.rs");
+        let ep = cache.entry_path(f).unwrap();
+        assert!(ep.starts_with("/xdg/cache/kloc"), "{ep:?}");
+        assert_eq!(cache.stats(), (0, 0));
+    }
+
+    #[test]
+    fn new_disabled_has_no_dir() {
+        let cache = Cache::new(false);
+        assert!(cache.entry_path(std::path::Path::new("a.rs")).is_none());
+    }
 }

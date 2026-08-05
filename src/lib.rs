@@ -28,6 +28,56 @@ fn normalize_name(s: &str) -> String {
     s.replace('-', "_").to_lowercase()
 }
 
+/// Serializes tests that read or write process environment variables
+/// (std::env) so they cannot race when run in parallel.
+#[cfg(test)]
+pub(crate) static TEST_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// RAII guard that brackets a test's environment-variable changes.
+///
+/// Holds the process-wide `TEST_ENV_LOCK` for the whole scope and restores
+/// every listed variable to its value from construction time on drop, so a
+/// panicking test cannot leak environment changes into the next test.
+#[cfg(test)]
+#[must_use]
+pub(crate) struct TestEnvGuard {
+    _lock: std::sync::MutexGuard<'static, ()>,
+    saved: Vec<(&'static str, Option<std::ffi::OsString>)>,
+}
+
+#[cfg(test)]
+impl TestEnvGuard {
+    /// Snapshot the given variables and hold the env lock for the scope.
+    pub(crate) fn new(names: &[&'static str]) -> Self {
+        let _lock = TEST_ENV_LOCK.lock().unwrap();
+        let saved = names
+            .iter()
+            .map(|name| (*name, std::env::var_os(name)))
+            .collect();
+        TestEnvGuard { _lock, saved }
+    }
+
+    pub(crate) fn set(&self, name: &'static str, value: &str) {
+        unsafe { std::env::set_var(name, value) };
+    }
+
+    pub(crate) fn remove(&self, name: &'static str) {
+        unsafe { std::env::remove_var(name) };
+    }
+}
+
+#[cfg(test)]
+impl Drop for TestEnvGuard {
+    fn drop(&mut self) {
+        for (name, previous) in &self.saved {
+            match previous {
+                Some(value) => unsafe { std::env::set_var(name, value) },
+                None => unsafe { std::env::remove_var(name) },
+            }
+        }
+    }
+}
+
 pub struct LanguageFilter {
     pub only: Vec<String>,
     pub exclude: Vec<String>,
@@ -315,4 +365,174 @@ pub fn run(paths: &[PathBuf], filter: &LanguageFilter, opts: &RunOptions) -> Rep
         cache_hits,
         cache_misses,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::language::LanguageSpec;
+    use tree_sitter::Language;
+
+    fn spec(
+        name: &'static str,
+        cat: LanguageCategory,
+        sub: Option<LanguageSubgroup>,
+    ) -> LanguageSpec {
+        LanguageSpec {
+            name,
+            category: cat,
+            subgroup: sub,
+            extensions: &[],
+            shebangs: &[],
+            filenames: &[],
+            grammar_fn: || Language::new(tree_sitter_rust::LANGUAGE),
+            comment_kinds: &["comment"],
+        }
+    }
+
+    fn filter(only: Vec<&str>, exclude: Vec<&str>) -> LanguageFilter {
+        LanguageFilter {
+            only: only.into_iter().map(String::from).collect(),
+            exclude: exclude.into_iter().map(String::from).collect(),
+            only_programming: false,
+            only_machine: false,
+        }
+    }
+
+    #[test]
+    fn filter_matches_programming_only() {
+        let f = LanguageFilter {
+            only: vec![],
+            exclude: vec![],
+            only_programming: true,
+            only_machine: false,
+        };
+        let prog = spec("Rust", LanguageCategory::Programming, None);
+        let machine = spec("JSON", LanguageCategory::Machine, None);
+        assert!(f.matches(&prog));
+        assert!(!f.matches(&machine));
+    }
+
+    #[test]
+    fn filter_matches_machine_only() {
+        let f = LanguageFilter {
+            only: vec![],
+            exclude: vec![],
+            only_programming: false,
+            only_machine: true,
+        };
+        assert!(!f.matches(&spec("Rust", LanguageCategory::Programming, None)));
+        assert!(f.matches(&spec("JSON", LanguageCategory::Machine, None)));
+    }
+
+    #[test]
+    fn filter_only_by_category_name_with_dash_normalizes() {
+        // Category names use underscores; a user may type a dash.
+        let f = filter(vec!["programming-languages"], vec![]);
+        assert!(f.matches(&spec("Rust", LanguageCategory::Programming, None)));
+        assert!(!f.matches(&spec("JSON", LanguageCategory::Machine, None)));
+    }
+
+    #[test]
+    fn filter_only_by_language_name() {
+        let f = filter(vec!["rust"], vec![]);
+        assert!(f.matches(&spec("Rust", LanguageCategory::Programming, None)));
+        assert!(!f.matches(&spec("Python", LanguageCategory::Programming, None)));
+    }
+
+    #[test]
+    fn filter_only_by_category_and_subgroup() {
+        let f = filter(vec!["programming_languages"], vec![]);
+        assert!(f.matches(&spec("Rust", LanguageCategory::Programming, None)));
+        let g = filter(vec!["data_languages"], vec![]);
+        assert!(g.matches(&spec(
+            "JSON",
+            LanguageCategory::Machine,
+            Some(LanguageSubgroup::Data)
+        )));
+        assert!(!g.matches(&spec("Rust", LanguageCategory::Programming, None)));
+    }
+
+    #[test]
+    fn filter_exclude_wins_over_only() {
+        let f = LanguageFilter {
+            only: vec!["rust".to_string()],
+            exclude: vec!["rust".to_string()],
+            only_programming: false,
+            only_machine: false,
+        };
+        assert!(!f.matches(&spec("Rust", LanguageCategory::Programming, None)));
+    }
+
+    #[test]
+    fn filter_empty_matches_all() {
+        let f = filter(vec![], vec![]);
+        assert!(f.matches(&spec("Rust", LanguageCategory::Programming, None)));
+        assert!(f.matches(&spec("JSON", LanguageCategory::Machine, None)));
+    }
+
+    #[test]
+    fn runoptions_from_args() {
+        use clap::Parser;
+        let args = cli::Args::try_parse_from([
+            "kloc",
+            "--sloc-only",
+            "--no-cache",
+            "--ignore",
+            "build",
+            "--no-ignore",
+            "dist",
+        ])
+        .unwrap();
+        let opts = RunOptions::from_args(&args);
+        assert!(opts.sloc_only);
+        assert!(opts.count_llm_tokens);
+        assert!(opts.ignore.is_ignored("build"));
+        assert!(!opts.ignore.is_ignored("dist"));
+    }
+}
+
+#[test]
+fn run_with_debug_logging_reports_per_file_timing() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("a.rs"), b"fn a() {}").unwrap();
+    crate::log::set_level(crate::log::LogLevel::Debug);
+    let opts = RunOptions {
+        sloc_only: true,
+        count_llm_tokens: false,
+        cache: cache::Cache::new(false),
+        ignore: walker::DirIgnore::new(false),
+    };
+    let filter = LanguageFilter {
+        only: vec![],
+        exclude: vec![],
+        only_programming: false,
+        only_machine: false,
+    };
+    let report = run(&[dir.path().to_path_buf()], &filter, &opts);
+    assert!(report.total_files >= 1);
+    crate::log::set_level(crate::log::LogLevel::Warning);
+}
+
+#[test]
+fn run_with_complexity_and_cache_roundtrip() {
+    let dir = tempfile::tempdir().unwrap();
+    let f = dir.path().join("a.rs");
+    std::fs::write(&f, b"fn a() {}\n").unwrap();
+    let opts = RunOptions {
+        sloc_only: false,
+        count_llm_tokens: false,
+        cache: cache::Cache::with_dir(dir.path().join("cache")),
+        ignore: walker::DirIgnore::new(false),
+    };
+    let filter = LanguageFilter {
+        only: vec![],
+        exclude: vec![],
+        only_programming: false,
+        only_machine: false,
+    };
+    let r1 = run(&[dir.path().to_path_buf()], &filter, &opts);
+    assert_eq!(r1.cache_misses, 1, "first run must miss");
+    let r2 = run(&[dir.path().to_path_buf()], &filter, &opts);
+    assert_eq!(r2.cache_hits, 1, "second run must hit the cache");
 }

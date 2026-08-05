@@ -133,4 +133,13 @@ mod tests {
     fn empty_source_counts_zero() {
         assert_eq!(count_tokens(b""), TokenCounts::default());
     }
+
+    #[test]
+    #[ignore]
+    fn non_utf8_bytes_pass_through() {
+        // NFKC normalization skips non-UTF-8 input unchanged; both tokenizers
+        // still run (each byte is a token at worst).
+        let t = count_tokens(b"\xff\xfe\x01");
+        assert_eq!(t.deepseek_v4, t.deepseek_v4);
+    }
 }

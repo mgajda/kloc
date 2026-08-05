@@ -93,4 +93,34 @@ mod tests {
         assert!(LogLevel::Warning < LogLevel::Info);
         assert!(LogLevel::Info < LogLevel::Debug);
     }
+
+    #[test]
+    fn prefix_matches_level() {
+        assert_eq!(prefix(LogLevel::Error), "error");
+        assert_eq!(prefix(LogLevel::Warning), "warning");
+        assert_eq!(prefix(LogLevel::Info), "info");
+        assert_eq!(prefix(LogLevel::Debug), "debug");
+    }
+
+    #[test]
+    fn log_emits_at_or_below_threshold() {
+        set_level(LogLevel::Debug);
+        log(LogLevel::Error, format_args!("error"));
+        log(LogLevel::Warning, format_args!("warning"));
+        log(LogLevel::Info, format_args!("info"));
+        log(LogLevel::Debug, format_args!("debug"));
+        error_log!("macro error");
+        warn_log!("macro warn");
+        info_log!("macro info");
+        debug_log!("macro debug");
+        set_level(LogLevel::Warning);
+    }
+
+    #[test]
+    fn log_suppressed_above_threshold() {
+        set_level(LogLevel::Error);
+        log(LogLevel::Info, format_args!("hidden info"));
+        info_log!("hidden macro info");
+        set_level(LogLevel::Warning);
+    }
 }

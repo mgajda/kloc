@@ -330,3 +330,109 @@ impl LanguageRegistry {
         self.languages.iter().find(|l| l.name == name)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn subgroup_and_category_names() {
+        let reg = registry();
+        let sql = reg.find_by_name("SQL").unwrap();
+        assert_eq!(sql.subgroup_name(), Some("query_languages"));
+        assert_eq!(sql.category_name(), "programming_languages");
+        let rust = reg.find_by_name("Rust").unwrap();
+        assert_eq!(rust.subgroup_name(), None);
+        // Machine languages exist only under --features all-machine-languages.
+        if let Some(json) = reg.find_by_name("JSON") {
+            assert_eq!(json.subgroup_name(), Some("data_languages"));
+            assert_eq!(json.category_name(), "machine_languages");
+        }
+    }
+
+    #[test]
+    fn detect_by_filename() {
+        let reg = registry();
+        // `make` is not a default feature; skip when it is absent.
+        if reg.find_by_name("Make").is_none() {
+            return;
+        }
+        assert_eq!(
+            reg.detect(Path::new("Makefile"), None).map(|s| s.name),
+            Some("Make")
+        );
+    }
+
+    #[test]
+    fn detect_by_extension() {
+        let reg = registry();
+        assert_eq!(
+            reg.detect(Path::new("main.rs"), None).map(|s| s.name),
+            Some("Rust")
+        );
+    }
+
+    #[test]
+    fn detect_by_shebang() {
+        let reg = registry();
+        assert_eq!(
+            reg.detect_by_shebang(b"#!/bin/bash\n").map(|s| s.name),
+            Some("Bash")
+        );
+        assert_eq!(
+            reg.detect_by_shebang(b"#!/usr/bin/env python3\n")
+                .map(|s| s.name),
+            Some("Python")
+        );
+        assert!(reg.detect_by_shebang(b"not a shebang").is_none());
+    }
+
+    #[test]
+    fn detect_falls_back_to_shebang_for_unknown_ext() {
+        let reg = registry();
+        let spec = reg.detect(Path::new("script.pyx"), Some(b"#!/usr/bin/env python"));
+        assert_eq!(spec.map(|s| s.name), Some("Python"));
+    }
+
+    #[test]
+    fn find_by_name_missing_returns_none() {
+        assert!(registry().find_by_name("NoSuchLanguage").is_none());
+    }
+
+    #[test]
+    fn grammar_constructs() {
+        let rust = registry().find_by_name("Rust").unwrap();
+        let _lang = rust.grammar();
+    }
+
+    #[test]
+    fn every_language_has_nonempty_extensions_or_filenames() {
+        for l in registry().languages() {
+            assert!(
+                !l.extensions.is_empty() || !l.filenames.is_empty(),
+                "{} must be detectable by extension or filename",
+                l.name
+            );
+        }
+    }
+}
+
+#[test]
+fn subgroup_name_strings_for_present_subgroups() {
+    let reg = registry();
+    // Guard each on presence: machine languages only exist under
+    // --features all-machine-languages.
+    if let Some(s) = reg.find_by_name("SQL") {
+        assert_eq!(s.subgroup_name(), Some("query_languages"));
+    }
+    if let Some(s) = reg.find_by_name("CMake") {
+        assert_eq!(s.subgroup_name(), Some("configuration_languages"));
+    }
+    if let Some(s) = reg.find_by_name("HTML") {
+        assert_eq!(s.subgroup_name(), Some("markup_languages"));
+    }
+    if let Some(s) = reg.find_by_name("JSON") {
+        assert_eq!(s.subgroup_name(), Some("data_languages"));
+    }
+}

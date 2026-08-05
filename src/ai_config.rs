@@ -115,3 +115,124 @@ pub fn write_default(path: &PathBuf) -> Result<(), String> {
     std::fs::write(path, DEFAULT_CONFIG)
         .map_err(|e| format!("failed to write AI config {}: {e}", path.display()))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn platform(name: &str, caps: &[(u64, u64)]) -> String {
+        let caps = caps
+            .iter()
+            .map(|(t, d)| format!("[{t}, {d}]"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!("[[platforms]]\nname = \"{name}\"\ncaps = [{caps}]\n")
+    }
+
+    #[test]
+    fn parse_valid_config() {
+        let cfg = parse(&platform("p", &[(100, 60), (200, 120)])).unwrap();
+        assert_eq!(cfg.platforms.len(), 1);
+        assert_eq!(cfg.platforms[0].caps, vec![(100, 60), (200, 120)]);
+    }
+
+    #[test]
+    fn parse_rejects_empty_caps() {
+        let e = parse("[[platforms]]\nname = \"p\"\ncaps = []\n").unwrap_err();
+        assert!(e.contains("at least one"), "{e}");
+    }
+
+    #[test]
+    fn parse_rejects_zero_token_cap() {
+        let e = parse(&platform("p", &[(0, 60)])).unwrap_err();
+        assert!(e.contains("token count must be > 0"), "{e}");
+    }
+
+    #[test]
+    fn parse_rejects_zero_duration_cap() {
+        let e = parse(&platform("p", &[(100, 0)])).unwrap_err();
+        assert!(e.contains("duration must be > 0"), "{e}");
+    }
+
+    #[test]
+    fn parse_rejects_non_monotonic_tokens() {
+        let e = parse(&platform("p", &[(200, 60), (100, 120)])).unwrap_err();
+        assert!(e.contains("caps not monotonic"), "{e}");
+    }
+
+    #[test]
+    fn parse_rejects_non_monotonic_durations() {
+        let e = parse(&platform("p", &[(100, 120), (200, 60)])).unwrap_err();
+        assert!(e.contains("durations not monotonic"), "{e}");
+    }
+
+    #[test]
+    fn parse_rejects_invalid_toml() {
+        assert!(parse("not toml [[[").is_err());
+    }
+
+    #[test]
+    fn config_path_override_wins() {
+        assert_eq!(
+            config_path(Some("/tmp/override/ai.toml")),
+            Some(PathBuf::from("/tmp/override/ai.toml"))
+        );
+    }
+
+    #[test]
+    fn config_path_uses_xdg() {
+        let _g = crate::TestEnvGuard::new(&["XDG_CONFIG_HOME", "HOME"]);
+        _g.set("XDG_CONFIG_HOME", "/xdg");
+        _g.remove("HOME");
+        assert_eq!(config_path(None), Some(PathBuf::from("/xdg/kloc/ai.toml")));
+    }
+
+    #[test]
+    fn config_path_falls_back_to_home() {
+        let _g = crate::TestEnvGuard::new(&["XDG_CONFIG_HOME", "HOME"]);
+        _g.remove("XDG_CONFIG_HOME");
+        _g.set("HOME", "/home/t");
+        assert_eq!(
+            config_path(None),
+            Some(PathBuf::from("/home/t/.config/kloc/ai.toml"))
+        );
+    }
+
+    #[test]
+    fn load_missing_file_falls_back_to_default() {
+        let cfg = load(Some("/nonexistent/kloc/ai.toml")).unwrap();
+        assert!(!cfg.platforms.is_empty());
+    }
+
+    #[test]
+    fn load_invalid_file_errors() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("bad.toml");
+        std::fs::write(&p, "bad [[[ toml").unwrap();
+        assert!(load(Some(p.to_str().unwrap())).is_err());
+    }
+
+    #[test]
+    fn load_reads_file_when_present() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("ai.toml");
+        std::fs::write(&p, platform("mine", &[(100, 60)])).unwrap();
+        let cfg = load(Some(p.to_str().unwrap())).unwrap();
+        assert_eq!(cfg.platforms[0].name, "mine");
+    }
+
+    #[test]
+    fn write_default_creates_parent_dirs() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("nested/dir/ai.toml");
+        write_default(&p).unwrap();
+        assert!(p.exists());
+        assert!(p.parent().unwrap().is_dir());
+    }
+
+    #[test]
+    fn default_config_is_valid() {
+        let cfg = default_config();
+        assert!(!cfg.platforms.is_empty());
+    }
+}

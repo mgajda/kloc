@@ -776,4 +776,76 @@ mod tests {
         assert_eq!(hk.total_modules, 0);
         assert_eq!(hk.total_information_flow, 0.0);
     }
+
+    #[test]
+    fn c_functions_resolve_names_via_declarator() {
+        // C function_definition has no `name` field; the name lives inside
+        // the declarator chain. This exercises function_name's fallback.
+        let src = b"int caller(void) {\n    return helper();\n}\nint helper(void) { return 1; }\n";
+        let spec = LanguageSpec {
+            name: "test",
+            category: LanguageCategory::Programming,
+            subgroup: None,
+            extensions: &[],
+            shebangs: &[],
+            filenames: &[],
+            grammar_fn: || Language::new(tree_sitter_c::LANGUAGE),
+            comment_kinds: &["comment"],
+        };
+        let mut parser = tree_sitter::Parser::new();
+        parser.set_language(&spec.grammar()).unwrap();
+        let tree = parser.parse(src, None).unwrap();
+        let hk = analyze_henry_kafura(&tree.root_node(), src);
+        assert_eq!(
+            hk.total_modules, 2,
+            "both C functions must resolve their names"
+        );
+        assert_eq!(hk.total_fan_in, 1, "helper is called by caller");
+        assert_eq!(hk.total_fan_out, 1, "caller calls helper");
+    }
+
+    #[test]
+    fn anonymous_functions_are_not_modules() {
+        let src = b"fn main() {\n    let f = |x| x + 1;\n    f(2);\n}\n";
+        let tree = parse(src);
+        let hk = analyze_henry_kafura(&tree.root_node(), src);
+        // Only `main` has a name; the closure has none.
+        assert_eq!(hk.total_modules, 1);
+    }
+
+    #[test]
+    fn analyze_on_whitespace_is_empty() {
+        let r = analyze(b"\n\n\n", &rust_spec());
+        assert_eq!(r.mccabe.function_count, 0);
+        assert_eq!(r.halstead.length, 0);
+        assert_eq!(r.henry_kafura.total_modules, 0);
+    }
+
+    #[test]
+    fn henry_kafura_self_call_and_duplicate_names() {
+        // `a` calls itself (self-loop); two modules share the name `dup`, so
+        // a call to `dup` credits fan-in to both. Covers the by_name multi-
+        // target and self-loop paths.
+        let src = b"fn a() {\n    a();\n    dup();\n}\nfn dup() {}\nfn dup() {}\n";
+        let tree = parse(src);
+        let hk = analyze_henry_kafura(&tree.root_node(), src);
+        assert_eq!(hk.total_modules, 3);
+        // a: fi={a}=1 (self), fo={a,dup}=2 -> IF 4
+        // dup1: fi={a}=1, fo=0 -> 0
+        // dup2: fi={a}=1, fo=0 -> 0
+        assert_eq!(hk.total_fan_in, 3);
+        assert_eq!(hk.total_fan_out, 2);
+        assert_eq!(hk.total_information_flow, 4.0);
+    }
+
+    #[test]
+    fn henry_kafura_nested_function_calls_attribute_to_innermost() {
+        let src = b"fn outer() {\n    fn inner() {\n        leaf();\n    }\n    inner();\n}\nfn leaf() {}\n";
+        let tree = parse(src);
+        let hk = analyze_henry_kafura(&tree.root_node(), src);
+        assert_eq!(hk.total_modules, 3);
+        // inner calls leaf (leaf's caller); outer calls inner.
+        assert_eq!(hk.total_fan_in, 2);
+        assert_eq!(hk.total_fan_out, 2);
+    }
 }

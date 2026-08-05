@@ -296,4 +296,62 @@ mod tests {
         assert_eq!(result.comments, 0);
         assert_eq!(result.blanks, 3);
     }
+
+    #[test]
+    fn test_total_sums_all_kinds() {
+        let r = CountResult {
+            sloc: 1,
+            comments: 2,
+            blanks: 3,
+            nodes: NodeCounts::default(),
+        };
+        assert_eq!(r.total(), 6);
+    }
+
+    #[test]
+    fn test_adjacent_block_comments_merge() {
+        use crate::language::LanguageCategory;
+        use tree_sitter::Language;
+        let spec = LanguageSpec {
+            name: "test",
+            category: LanguageCategory::Programming,
+            subgroup: None,
+            extensions: &[],
+            shebangs: &[],
+            filenames: &[],
+            grammar_fn: || Language::new(tree_sitter_rust::LANGUAGE),
+            comment_kinds: &["block_comment", "line_comment"],
+        };
+        // Two adjacent block comments on one line must classify as a comment
+        // line, not a code line (the merged interval covers both).
+        let r = count(b"/*a*//*b*/\nfn x() {}\n", &spec);
+        assert_eq!(r.comments, 1, "adjacent comments are one comment line");
+        assert_eq!(r.sloc, 1, "the function line is code");
+    }
+
+    #[test]
+    fn test_partially_parseable_source_recovers() {
+        use crate::language::LanguageCategory;
+        use tree_sitter::Language;
+        let spec = LanguageSpec {
+            name: "test",
+            category: LanguageCategory::Programming,
+            subgroup: None,
+            extensions: &[],
+            shebangs: &[],
+            filenames: &[],
+            grammar_fn: || Language::new(tree_sitter_rust::LANGUAGE),
+            comment_kinds: &["comment"],
+        };
+        // An unterminated brace yields ERROR nodes, but tree-sitter recovers;
+        // the line still counts as SLOC rather than panicking.
+        let r = count(b"fn x() {\n", &spec);
+        assert_eq!(r.sloc, 1);
+    }
+
+    #[test]
+    fn test_line_index_out_of_range() {
+        let starts = line_starts(b"abc\ndef");
+        assert_eq!(line_index(&starts, 999, starts.len()), 1);
+    }
 }

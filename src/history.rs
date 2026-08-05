@@ -588,4 +588,87 @@ mod tests {
             Some("new.rs".to_string())
         );
     }
+
+    #[test]
+    fn label_secs_all_units() {
+        const MIN: u64 = 60;
+        const HOUR: u64 = 60 * MIN;
+        const DAY: u64 = 24 * HOUR;
+        const WEEK: u64 = 7 * DAY;
+        const MONTH: u64 = 30 * DAY;
+        assert_eq!(label_secs(5 * HOUR, 2), "2x 5h windows");
+        assert_eq!(label_secs(HOUR, 1), "1 hour");
+        assert_eq!(label_secs(DAY, 3), "3 days");
+        assert_eq!(label_secs(WEEK, 1), "1 week");
+        assert_eq!(label_secs(MONTH, 2), "2 months");
+        assert_eq!(label_secs(2 * MONTH, 1), "2 months");
+        assert_eq!(label_secs(2 * DAY, 1), "2 days");
+        assert_eq!(label_secs(90 * MIN, 1), "2 hours"); // 90 min rounds up
+        assert_eq!(label_secs(5, 1), "1 s");
+    }
+
+    #[test]
+    fn ai_time_seconds_zero_effective() {
+        let caps = AiCaps {
+            breaks: vec![(100, 60), (200, 120)],
+        };
+        assert_eq!(ai_time_seconds_with_caps(0, &caps, 5.0), 0.0);
+        // Zero breakpoints are skipped; the remainder uses the first cap.
+        let caps0 = AiCaps {
+            breaks: vec![(100, 60), (200, 0)],
+        };
+        assert_eq!(ai_time_seconds_with_caps(50, &caps0, 0.0), 30.0);
+    }
+
+    #[test]
+    fn git_root_rejects_non_repo() {
+        let _g = crate::TestEnvGuard::new(&["GIT_CEILING_DIRECTORIES"]);
+        let dir = tempfile::tempdir().unwrap();
+        // Stop git from discovering an enclosing repository (the system temp
+        // dir can be inside one, e.g. when TMPDIR points into a work tree).
+        let abs = dir.path().canonicalize().unwrap();
+        _g.set(
+            "GIT_CEILING_DIRECTORIES",
+            abs.parent().unwrap_or(abs.as_path()).to_str().unwrap(),
+        );
+        let r = git_root(&[dir.path().to_path_buf()]);
+        assert!(r.is_err(), "a non-git directory must fail");
+    }
+
+    #[test]
+    fn git_log_p_spawns_even_outside_a_repo() {
+        // git log spawns a child regardless of repo state; non-repo status
+        // surfaces later when reading the pipe, so spawn itself succeeds.
+        let dir = tempfile::tempdir().unwrap();
+        let r = git_log_p(dir.path(), None, None);
+        assert!(r.is_ok(), "git log child must spawn");
+    }
+
+    #[test]
+    fn run_history_rejects_non_repo() {
+        let _g = crate::TestEnvGuard::new(&["GIT_CEILING_DIRECTORIES"]);
+        let dir = tempfile::tempdir().unwrap();
+        let abs = dir.path().canonicalize().unwrap();
+        _g.set(
+            "GIT_CEILING_DIRECTORIES",
+            abs.parent().unwrap_or(abs.as_path()).to_str().unwrap(),
+        );
+        let filter = crate::LanguageFilter {
+            only: vec![],
+            exclude: vec![],
+            only_programming: false,
+            only_machine: false,
+        };
+        let cfg = crate::ai_config::default_config();
+        let r = run_history(
+            &[dir.path().to_path_buf()],
+            &filter,
+            None,
+            None,
+            &cfg,
+            None,
+            false,
+        );
+        assert!(r.is_err());
+    }
 }

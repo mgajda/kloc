@@ -6,3 +6,4 @@ debian/debhelper-build-stamp
 debian/files
 debian/*.substvars
 debian/kloc/
+mutants.out*/

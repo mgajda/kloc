@@ -237,4 +237,20 @@ mod tests {
         assert!(r.halstead.schedule_months > 0.0);
         assert!(r.halstead.avg_people > 0.0);
     }
+
+    #[test]
+    fn test_all_cocomo_modes_coefficients() {
+        // Exercise every mode's coefficients tuple.
+        for mode in [
+            CocomoMode::Organic,
+            CocomoMode::SemiDetached,
+            CocomoMode::Embedded,
+        ] {
+            let pm = mode.effort_person_months(50.0);
+            let sched = mode.schedule_months(pm);
+            assert!(pm > 0.0 && sched > 0.0);
+            assert!(mode.avg_people(pm) > 0.0);
+            assert!(mode.avg_people(0.0) == 0.0);
+        }
+    }
 }
