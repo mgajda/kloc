@@ -103,14 +103,23 @@ pub fn ai_duration(tokens: u64, caps: &AiCaps, multiplier: f64) -> String {
         }
     }
 
-    // Remaining tokens under the smallest cap: express as minutes/seconds.
+    // Remaining tokens under the smallest cap: express as hours+minutes, or
+    // seconds when sub-minute.
     if effective > 0 {
         let (small_tokens, small_secs) = caps.breaks[0];
         if small_tokens > 0 {
             let rate = small_secs as f64 / small_tokens as f64; // secs per token
             let secs = (effective as f64 * rate).round() as u64;
             if secs >= 60 {
-                parts.push(format!("{} min", secs / 60));
+                let total_min = secs / 60;
+                let hours = total_min / 60;
+                let mins = total_min % 60;
+                let t = match (hours, mins) {
+                    (0, m) => format!("{m} min"),
+                    (h, 0) => format!("{h} h"),
+                    (h, m) => format!("{h} h {m} min"),
+                };
+                parts.push(t);
             } else if secs > 0 {
                 parts.push(format!("{secs} s"));
             }

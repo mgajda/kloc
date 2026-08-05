@@ -1,5 +1,33 @@
 # kloc development notes
 
+## Concurrency cap: 4 simultaneous threads (recorded)
+
+This machine has 12 physical cores, but the memory wall hits much earlier. Cap
+all parallelism at **4** simultaneous threads — for Cargo (`CARGO_BUILD_JOBS=4`),
+for any other build/test job, and for benchmarking runs (only one tool at a
+time). A job that needs more cores for throughput must be justified and approved
+first.
+
+**cargo-mutants is capped at 4 jobs, never more** — each mutant triggers a full
+`cargo test --no-run` rebuild plus a test run, so even 4 workers swamp the
+machine. Two knobs multiply together, so BOTH must stay low: the worker count
+(`-j`, CLI-only) and the nested cargo build jobs. The record launch is
+`-j 2` workers + `.cargo/mutants.toml` `additional_cargo_args = ["-j", "2"]`
+(2 workers × 2 nested jobs = 4 concurrent max). Never pass `-j > 4` on the
+command line and never raise the nested `-j` above 2.
+Launch inside a memory-bounded scope (`systemd-run --user --scope -p MemoryMax=10G
+-p MemorySwapMax=0`, see `tmp/launch-mutants.sh`) and run with **one worker**
+(`-j 1`): mutant `delete !` in the tree-traversal loops turns them into
+unbounded loops that grow memory until the machine OOM-kills the run. The
+escape is `ulimit -v 8000000` inside the scope: the hung Vec growth hits
+RLIMIT_AS, returns ENOMEM, and Rust's allocator ABORTS (SIGABRT) — a normal
+process death that never invokes the kernel OOM killer, so systemd does NOT
+mark the scope failed (it stops a unit on ANY kernel OOM-kill, even a correctly
+isolated one; a low MemoryHigh soft-limit instead triggers systemd-oomd's
+pressure-kill). The cgroup MemoryMax is only a high safety net. Do NOT raise
+the worker count above 1 and do NOT raise `--timeout` above 60: two hang tests
+at once or a long hang both defeat the isolation.
+
 ## Randomized tests: seed SOP (recorded)
 
 Property / random tests (e.g. history-consistency vs source-tree consistency)
