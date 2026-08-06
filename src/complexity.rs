@@ -848,4 +848,94 @@ mod tests {
         assert_eq!(hk.total_fan_in, 2);
         assert_eq!(hk.total_fan_out, 2);
     }
+    #[test]
+    fn halstead_derive_pins_derived_values() {
+        let mut h = HalsteadMetrics {
+            distinct_operators: 3,
+            distinct_operands: 2,
+            total_operators: 5,
+            total_operands: 4,
+            ..Default::default()
+        };
+        h.derive();
+        assert_eq!(h.vocabulary, 5);
+        assert_eq!(h.length, 9);
+        assert_eq!(h.estimated_length, 6.754887502163468);
+        assert_eq!(h.volume, 20.89735285398626);
+        assert_eq!(h.difficulty, 3.0);
+        assert_eq!(h.effort, 62.692058561958774);
+        assert_eq!(h.time_seconds, 3.482892142331043);
+        assert_eq!(h.bugs, 0.0069657842846620865);
+    }
+
+    #[test]
+    fn halstead_derive_zero_operands_is_zero_not_nan() {
+        let mut z = HalsteadMetrics::default();
+        z.derive();
+        assert_eq!(z.volume, 0.0);
+        assert_eq!(z.difficulty, 0.0);
+        assert_eq!(z.estimated_length, 0.0);
+        assert!(z.volume.is_finite());
+    }
+
+    #[test]
+    fn kind_predicates_true_and_false() {
+        assert!(kind_is_decision("if_statement"));
+        assert!(kind_is_decision("for_statement"));
+        assert!(!kind_is_decision("function_definition"));
+        assert!(kind_is_binary_condition("binary_expression", "&&"));
+        assert!(kind_is_binary_condition("binary_expression", "||"));
+        assert!(!kind_is_binary_condition("binary_expression", "+"));
+        assert!(!kind_is_binary_condition("call_expression", "&&"));
+        assert!(kind_is_literal("integer_literal"));
+        assert!(kind_is_literal("true"));
+        assert!(!kind_is_literal("if_statement"));
+        assert!(kind_is_punctuation("("));
+        assert!(!kind_is_punctuation("if"));
+        assert!(kind_is_keyword("if"));
+        assert!(!kind_is_keyword("identifier"));
+    }
+
+    #[test]
+    fn classify_returns_both_directions() {
+        // punctuation / keyword classify as operators.
+        assert!(classify("(", "(", "call_expression"));
+        assert!(classify("if", "if", "if_statement"));
+        // literals classify as operands.
+        assert!(!classify("integer_literal", "5", "binary_expression"));
+        // calls and binary conditions classify as operators.
+        assert!(classify("identifier", "helper", "call_expression"));
+        assert!(classify("binary_expression", "&&", "binary_expression"));
+        // identifiers under non-call/function parents are operands.
+        assert!(!classify("identifier", "x", "let_declaration"));
+        assert!(classify("identifier", "x", "function_definition"));
+    }
+
+    #[test]
+    fn aggregate_henry_kafura_exact() {
+        let m1 = HenryKafuraMetrics {
+            total_modules: 2,
+            total_fan_in: 3,
+            total_fan_out: 4,
+            total_information_flow: 5.0,
+        };
+        let m2 = HenryKafuraMetrics {
+            total_modules: 1,
+            total_fan_in: 1,
+            total_fan_out: 2,
+            total_information_flow: 1.0,
+        };
+        let agg = aggregate_henry_kafura([&m1, &m2]).unwrap();
+        assert_eq!(
+            (
+                agg.total_modules,
+                agg.total_fan_in,
+                agg.total_fan_out,
+                agg.total_information_flow
+            ),
+            (3, 4, 6, 6.0)
+        );
+        // Empty input yields None, not an empty aggregate.
+        assert!(aggregate_henry_kafura(std::iter::empty::<&HenryKafuraMetrics>()).is_none());
+    }
 }

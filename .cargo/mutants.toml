@@ -1,0 +1,7 @@
+# cargo-mutants concurrency cap: 4 total jobs, never more.
+# Two knobs multiply: the worker count (-j, CLI-only) and the nested cargo
+# build jobs (set here). Keep -j workers <= 4 AND nested jobs <= 2, so the
+# product (concurrent build+test slots) stays <= 4. Each mutant triggers a
+# full `cargo test --no-run` rebuild plus a test run, so even 4 slots swamp
+# this machine (12 physical cores, memory-wall bound).
+additional_cargo_args = ["-j", "2"]

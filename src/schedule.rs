@@ -253,4 +253,84 @@ mod tests {
             assert!(mode.avg_people(0.0) == 0.0);
         }
     }
+    #[test]
+    fn cocomo_exact_values() {
+        assert_eq!(
+            CocomoMode::Organic.effort_person_months(10.0),
+            26.928442903247127
+        );
+        assert_eq!(
+            CocomoMode::Organic.schedule_months(26.928442903247127),
+            8.738165793274268
+        );
+        assert_eq!(
+            CocomoMode::SemiDetached.effort_person_months(10.0),
+            39.547702156692225
+        );
+        assert_eq!(
+            CocomoMode::SemiDetached.schedule_months(39.547702156692225),
+            9.055917300087549
+        );
+        assert_eq!(
+            CocomoMode::Embedded.effort_person_months(10.0),
+            57.05615492860008
+        );
+        assert_eq!(
+            CocomoMode::Embedded.schedule_months(57.05615492860008),
+            9.119201433458992
+        );
+        // avg_people = pm / schedule; zero pm yields zero, not NaN.
+        assert_eq!(CocomoMode::Organic.avg_people(0.0), 0.0);
+        assert_eq!(
+            CocomoMode::Organic.avg_people(26.928442903247127),
+            3.081704277569767
+        );
+    }
+
+    #[test]
+    fn cocomo_ii_exact_values() {
+        assert_eq!(cocomo_ii_person_months(1.0), 2.94);
+        assert_eq!(cocomo_ii_person_months(10.0), 23.89721717522452);
+        assert_eq!(
+            cocomo_ii_schedule_months(23.89721717522452),
+            8.92489913801881
+        );
+        assert_eq!(cocomo_ii_schedule_months(1.0), 3.67);
+    }
+
+    #[test]
+    fn putnam_and_halstead_exact() {
+        assert_eq!(putnam_schedule_years(1000.0, 2.0), 0.043692206064732314);
+        assert_eq!(halstead_person_months(1e6), 0.10152696556205328);
+        assert_eq!(halstead_person_months(0.0), 0.0);
+    }
+
+    #[test]
+    fn estimate_pins_all_breakdowns() {
+        let r = estimate(10_000, 1e5);
+        assert_eq!(r.ksloc, 10.0);
+        assert_eq!(r.cocomo.effort_person_months, 26.928442903247127);
+        assert_eq!(r.cocomo.schedule_months, 8.738165793274268);
+        assert_eq!(r.cocomo.avg_people, 3.081704277569767);
+        assert_eq!(r.cocomo_ii.effort_person_months, 23.89721717522452);
+        assert_eq!(r.cocomo_ii.schedule_months, 8.92489913801881);
+        assert_eq!(r.cocomo_ii.avg_people, 2.6775896069711025);
+        assert_eq!(r.putnam.schedule_years, 0.2459630960476584);
+        assert_eq!(r.putnam.schedule_months, 2.9515571525719007);
+        assert_eq!(r.putnam.avg_people, 8.096477872502378);
+        assert_eq!(r.halstead.effort_person_months, 0.010152696556205328);
+        assert_eq!(r.halstead.schedule_months, 1.0151000706079572);
+        assert_eq!(r.halstead.avg_people, 0.010001670623591565);
+    }
+
+    #[test]
+    fn estimate_zero_is_finite() {
+        // Zero SLOC and zero effort must not produce NaN anywhere.
+        let r = estimate(0, 0.0);
+        assert_eq!(r.cocomo_ii.avg_people, 0.0);
+        assert_eq!(r.putnam.avg_people, 0.0);
+        assert_eq!(r.halstead.avg_people, 0.0);
+        assert!(r.putnam.schedule_months.is_finite());
+        assert!(r.cocomo_ii.schedule_months.is_finite());
+    }
 }

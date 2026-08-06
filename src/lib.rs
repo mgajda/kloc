@@ -536,3 +536,86 @@ fn run_with_complexity_and_cache_roundtrip() {
     let r2 = run(&[dir.path().to_path_buf()], &filter, &opts);
     assert_eq!(r2.cache_hits, 1, "second run must hit the cache");
 }
+#[test]
+fn run_pins_exact_aggregates() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("a.rs"),
+        b"// hi\nfn a() {}\nfn b() { if true {} }\n",
+    )
+    .unwrap();
+    let opts = RunOptions {
+        sloc_only: false,
+        count_llm_tokens: false,
+        cache: cache::Cache::new(false),
+        ignore: walker::DirIgnore::new(false),
+    };
+    let filter = LanguageFilter {
+        only: vec![],
+        exclude: vec![],
+        only_programming: false,
+        only_machine: false,
+    };
+    let r = run(&[dir.path().to_path_buf()], &filter, &opts);
+    assert_eq!(r.total_sloc, 2);
+    assert_eq!(r.total_comments, 1);
+    assert_eq!(r.total_files, 1);
+    assert_eq!(r.performance.functions, 2);
+    assert_eq!(r.performance.bytes_parsed, 38);
+    assert!(r.performance.bytes_per_sec > 0.0);
+    assert!(r.performance.files_per_sec > 0.0);
+    assert!(r.performance.functions_per_sec > 0.0);
+    assert_eq!(r.by_language.len(), 1);
+    let rust = &r.by_language[0];
+    assert_eq!(rust.name, "Rust");
+    assert_eq!(
+        (rust.sloc, rust.files, rust.comments, rust.leaf_tokens),
+        (2, 1, 1, 17)
+    );
+    let h = r.halstead.as_ref().expect("halstead computed");
+    assert_eq!(
+        (
+            h.distinct_operators,
+            h.distinct_operands,
+            h.total_operators,
+            h.total_operands
+        ),
+        (9, 1, 16, 1)
+    );
+    let m = r.mccabe.as_ref().expect("mccabe computed");
+    assert_eq!((m.function_count, m.total_cyclomatic), (2, 3));
+    assert_eq!(m.average_cyclomatic, 1.5);
+    let hk = r.henry_kafura.as_ref().expect("henry-kafura computed");
+    assert_eq!(
+        (hk.total_modules, hk.total_fan_in, hk.total_fan_out),
+        (2, 0, 0)
+    );
+    let n = &r.nodes;
+    assert_eq!((n.named_nodes, n.leaf_tokens), (14, 17));
+}
+
+#[test]
+fn run_empty_file_reports_no_metrics() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("empty.rs"), b"").unwrap();
+    let opts = RunOptions {
+        sloc_only: false,
+        count_llm_tokens: false,
+        cache: cache::Cache::new(false),
+        ignore: walker::DirIgnore::new(false),
+    };
+    let filter = LanguageFilter {
+        only: vec![],
+        exclude: vec![],
+        only_programming: false,
+        only_machine: false,
+    };
+    let r = run(&[dir.path().to_path_buf()], &filter, &opts);
+    assert_eq!(r.total_sloc, 0);
+    assert!(
+        r.henry_kafura.is_none(),
+        "no functions -> no Henry-Kafura modules"
+    );
+    let m = r.mccabe.expect("mccabe computed even for empty file");
+    assert_eq!(m.average_cyclomatic, 0.0);
+}

@@ -164,7 +164,7 @@ fn label_secs(secs: u64, count: u64) -> String {
         let mins = secs / MIN;
         ("minute", count * mins, false)
     } else {
-        ("s", count, false)
+        ("second", count, false)
     };
     let plural = if num == 1 { "" } else { "s" };
     if digit_start {
@@ -576,6 +576,25 @@ mod tests {
     }
 
     #[test]
+    fn test_ai_duration_remainder_uses_hours_minutes() {
+        // Remainder minutes are rendered as hours + minutes (Claude Pro caps:
+        // smallest cap 44k tokens / 5 h). Token counts chosen so the remainder
+        // lands on the minute boundaries below.
+        let cfg = crate::ai_config::default_config();
+        let p = &cfg.platforms[0];
+        let caps = AiCaps::from_cfg(p);
+        let mult = p.multiplier.unwrap_or(5.0);
+        assert_eq!(ai_duration(11_489, &caps, mult), "1x 5h window, 2 h 50 min");
+        assert_eq!(ai_duration(35_078, &caps, mult), "1 day, 3 h 55 min");
+        assert_eq!(ai_duration(14_031, &caps, mult), "1x 5h window, 4 h 34 min");
+        assert_eq!(ai_duration(9_191, &caps, mult), "1x 5h window, 1 h 16 min");
+        assert_eq!(
+            ai_duration(70_156, &caps, mult),
+            "2 days, 1x 5h window, 2 h 50 min"
+        );
+    }
+
+    #[test]
     fn test_build_range() {
         assert_eq!(build_range(None, None), None);
         assert_eq!(build_range(Some("v1"), None), Some("v1..".to_string()));
@@ -613,7 +632,7 @@ mod tests {
         assert_eq!(label_secs(2 * MONTH, 1), "2 months");
         assert_eq!(label_secs(2 * DAY, 1), "2 days");
         assert_eq!(label_secs(90 * MIN, 1), "2 hours"); // 90 min rounds up
-        assert_eq!(label_secs(5, 1), "1 s");
+        assert_eq!(label_secs(5, 1), "1 second");
     }
 
     #[test]
@@ -654,6 +673,72 @@ mod tests {
     }
 
     #[test]
+    fn ai_time_seconds_with_caps_exact_values() {
+        let caps = AiCaps {
+            breaks: vec![(100, 60), (200, 120)],
+        };
+        assert_eq!(ai_time_seconds_with_caps(0, &caps, 5.0), 0.0);
+        // Whole periods only, no remainder.
+        assert_eq!(ai_time_seconds_with_caps(100, &caps, 0.0), 60.0);
+        assert_eq!(ai_time_seconds_with_caps(200, &caps, 0.0), 120.0);
+        assert_eq!(ai_time_seconds_with_caps(300, &caps, 0.0), 180.0);
+        // Whole period + interpolated remainder under the smallest cap.
+        assert_eq!(ai_time_seconds_with_caps(250, &caps, 0.0), 150.0);
+        // Two whole periods + remainder (exercises %= cap_tokens).
+        assert_eq!(ai_time_seconds_with_caps(450, &caps, 0.0), 270.0);
+        // Multiplier applies: effective = tokens x (1 + mult).
+        assert_eq!(ai_time_seconds_with_caps(50, &caps, 1.0), 60.0);
+    }
+
+    #[test]
+    fn ai_time_seconds_with_caps_skips_zero_breaks() {
+        // A cap whose token count is zero must be skipped: reaching it
+        // otherwise divides by zero and panics.
+        let caps = AiCaps {
+            breaks: vec![(100, 60), (200, 120), (0, 3600)],
+        };
+        assert_eq!(ai_time_seconds_with_caps(50, &caps, 0.0), 30.0);
+        // A zero-duration cap is skipped; the remainder still interpolates
+        // against the first (smallest) cap.
+        let caps0 = AiCaps {
+            breaks: vec![(100, 60), (200, 0)],
+        };
+        assert_eq!(ai_time_seconds_with_caps(50, &caps0, 0.0), 30.0);
+        assert_eq!(ai_time_seconds_with_caps(450, &caps0, 0.0), 270.0);
+    }
+
+    #[test]
+    fn label_secs_exact_labels() {
+        assert_eq!(label_secs(60, 1), "1 minute");
+        assert_eq!(label_secs(45 * 60, 1), "45 minutes");
+        assert_eq!(label_secs(90 * 60, 1), "2 hours"); // 90 min rounds up
+        assert_eq!(label_secs(3 * 3600 + 1800, 1), "4 hours"); // 3.5h rounds up
+        assert_eq!(label_secs(5 * 3600, 2), "2x 5h windows");
+        assert_eq!(label_secs(24 * 3600, 2), "2 days");
+        assert_eq!(label_secs(2 * 24 * 3600, 1), "2 days");
+        assert_eq!(label_secs(30 * 24 * 3600, 1), "1 month");
+        assert_eq!(label_secs(45 * 24 * 3600, 1), "2 months"); // 1.5mo rounds up
+        assert_eq!(label_secs(30, 1), "1 second");
+        assert_eq!(label_secs(30, 5), "5 seconds");
+    }
+
+    #[test]
+    fn ai_duration_exact_decomposition() {
+        // Covers whole-period decomposition, the >=60 min remainder, the
+        // sub-minute remainder, and an exact multiple of all caps (no
+        // remainder part).
+        let caps = AiCaps {
+            breaks: vec![(100, 60), (200, 120), (400, 240)],
+        };
+        // Exact multiple of every cap: no remainder label.
+        assert_eq!(ai_duration(1400, &caps, 0.0), "12 minutes, 2 minutes");
+        // One large period + remainder interpolated as seconds (< 60 s).
+        assert_eq!(ai_duration(425, &caps, 0.0), "4 minutes, 15 s");
+        // Remainder >= 60 s renders as minutes.
+        assert_eq!(ai_duration(450, &caps, 0.0), "4 minutes, 30 s");
+    }
+
+    #[test]
     fn run_history_rejects_non_repo() {
         let _g = crate::TestEnvGuard::new(&["GIT_CEILING_DIRECTORIES"]);
         let dir = tempfile::tempdir().unwrap();
@@ -679,5 +764,49 @@ mod tests {
             false,
         );
         assert!(r.is_err());
+    }
+    #[test]
+    fn flush_folds_per_language_counts() {
+        let mut per_lang: BTreeMap<String, PerLang> = BTreeMap::new();
+        per_lang.insert(
+            "Rust".to_string(),
+            PerLang {
+                added_lines: 10,
+                removed_lines: 4,
+                added_bytes: b"fn a() {}\n".to_vec(),
+                removed_bytes: b"".to_vec(),
+                added_tokens: 0,
+                removed_tokens: 0,
+                total_added_lines: 0,
+                total_removed_lines: 0,
+                files: ["a.rs".to_string()].into_iter().collect(),
+            },
+        );
+        let mut halstead_agg: BTreeMap<String, crate::complexity::HalsteadMetrics> =
+            BTreeMap::new();
+        let mut llm = crate::TokenCounts::default();
+        let mut total_added = 0u64;
+        let mut total_removed = 0u64;
+        let registry = crate::language::registry();
+        flush(
+            &mut per_lang,
+            &mut halstead_agg,
+            registry,
+            &mut llm,
+            &mut total_added,
+            &mut total_removed,
+            false,
+        );
+        let p = &per_lang["Rust"];
+        assert_eq!((p.total_added_lines, p.total_removed_lines), (10, 4));
+        assert_eq!((total_added, total_removed), (10, 4));
+        assert_eq!(p.added_lines, 0, "buffers must clear after flush");
+        assert_eq!(p.removed_lines, 0);
+        assert!(p.added_bytes.is_empty());
+        // Halstead folded from the added bytes; the += accumulators must not
+        // become *= (which would zero the aggregate).
+        let h = &halstead_agg["Rust"];
+        assert!(h.total_operators > 0);
+        assert!(h.distinct_operators > 0);
     }
 }

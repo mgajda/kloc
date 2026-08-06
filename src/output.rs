@@ -1028,4 +1028,249 @@ mod tests {
         let expected: Vec<String> = plain_out.lines().map(|l| l.to_string()).collect();
         assert_eq!(stripped, expected, "color changed layout");
     }
+
+    #[test]
+    fn build_schedule_cols_pins_exact_values() {
+        use crate::schedule::{
+            CocomoBreakdown, CocomoIiBreakdown, HalsteadBreakdown, PutnamBreakdown,
+        };
+        let s = crate::schedule::ScheduleReport {
+            ksloc: 10.0,
+            cocomo: CocomoBreakdown {
+                mode: crate::schedule::CocomoMode::Organic,
+                effort_person_months: 12.0,
+                schedule_months: 6.0,
+                avg_people: 2.0,
+            },
+            cocomo_ii: CocomoIiBreakdown {
+                effort_person_months: 15.0,
+                schedule_months: 7.0,
+                avg_people: 2.5,
+            },
+            putnam: PutnamBreakdown {
+                schedule_years: 0.5,
+                schedule_months: 6.0,
+                avg_people: 3.0,
+            },
+            halstead: HalsteadBreakdown {
+                effort_person_months: 8.0,
+                schedule_months: 5.0,
+                avg_people: 1.5,
+                single_developer_seconds: 100.0,
+            },
+        };
+        let ai_tokens = vec![("Claude Pro".to_string(), 100_000u64)];
+        let cfg = crate::ai_config::default_config();
+        let cols = build_schedule_cols(&s, &ai_tokens, &cfg, None, 2_200, Some(1000.0));
+        let get = |label: &str| cols.iter().find(|c| c.label == label).unwrap();
+        let c = get("COCOMO 1");
+        assert_eq!(
+            (
+                c.metric.as_str(),
+                c.effort.as_str(),
+                c.team.as_str(),
+                c.schedule.as_str()
+            ),
+            (
+                "10.0 k lines of code",
+                "1.0 person-years",
+                "2.0",
+                "6.0 months"
+            )
+        );
+        let c = get("Tree-sitter");
+        assert_eq!(
+            (c.metric.as_str(), c.effort.as_str(), c.schedule.as_str()),
+            ("2.20k tokens", "2.0 days", "2.0 days")
+        );
+        let c = get("Halstead");
+        assert_eq!(
+            (c.metric.as_str(), c.effort.as_str(), c.schedule.as_str()),
+            ("1.00k volume", "8.0 person-months", "5.0 months")
+        );
+        let c = get("Claude Pro");
+        assert_eq!(
+            (c.metric.as_str(), c.effort.as_str(), c.schedule.as_str()),
+            (
+                "100k tokens",
+                "600k tokens",
+                "3 days, 1x 5h window, 3 h 10 min"
+            )
+        );
+        // Platforms with no measured tokens show em-dashes, not "0".
+        let c = get("Claude Max 5x");
+        assert_eq!(
+            (c.metric.as_str(), c.effort.as_str(), c.schedule.as_str()),
+            ("—", "—", "—")
+        );
+    }
+
+    #[test]
+    fn build_schedule_cols_zero_leaf_and_no_volume() {
+        use crate::schedule::{
+            CocomoBreakdown, CocomoIiBreakdown, HalsteadBreakdown, PutnamBreakdown,
+        };
+        let s = crate::schedule::ScheduleReport {
+            ksloc: 0.0,
+            cocomo: CocomoBreakdown {
+                mode: crate::schedule::CocomoMode::Organic,
+                effort_person_months: 0.0,
+                schedule_months: 0.0,
+                avg_people: 0.0,
+            },
+            cocomo_ii: CocomoIiBreakdown {
+                effort_person_months: 0.0,
+                schedule_months: 0.0,
+                avg_people: 0.0,
+            },
+            putnam: PutnamBreakdown {
+                schedule_years: 0.0,
+                schedule_months: 0.0,
+                avg_people: 0.0,
+            },
+            halstead: HalsteadBreakdown {
+                effort_person_months: 0.0,
+                schedule_months: 0.0,
+                avg_people: 0.0,
+                single_developer_seconds: 0.0,
+            },
+        };
+        let cfg = crate::ai_config::default_config();
+        let cols = build_schedule_cols(&s, &[], &cfg, None, 0, None);
+        let tree = cols.iter().find(|c| c.label == "Tree-sitter").unwrap();
+        assert_eq!((tree.metric.as_str(), tree.effort.as_str()), ("—", "—"));
+        let halstead = cols.iter().find(|c| c.label == "Halstead").unwrap();
+        assert_eq!(halstead.metric, "—");
+    }
+
+    #[test]
+    fn human_duration_boundaries() {
+        const HOUR: f64 = 3600.0;
+        const DAY: f64 = 24.0 * HOUR;
+        const MONTH: f64 = 30.44 * DAY;
+        const YEAR: f64 = 12.0 * MONTH;
+        assert_eq!(human_duration(1.5 * HOUR), "1.5 hours");
+        assert_eq!(human_duration(3.0 * HOUR), "3.0 hours");
+        assert_eq!(human_duration(1.5 * DAY), "1.5 days");
+        assert_eq!(human_duration(2.0 * DAY), "2.0 days");
+        assert_eq!(human_duration(1.5 * MONTH), "1.5 months");
+        assert_eq!(human_duration(5.0 * MONTH), "5.0 months");
+        assert_eq!(human_duration(0.5 * YEAR), "6.0 months");
+        assert_eq!(human_duration(0.0), "0 s");
+        assert_eq!(human_duration(45.0), "45 s");
+    }
+
+    #[test]
+    fn align_dots_exact_cells() {
+        let cells = vec![
+            "10.5 person-months".to_string(),
+            "5.0 person-months".to_string(),
+            "3.0 person-years".to_string(),
+            "—".to_string(),
+            "0.5 person-days".to_string(),
+        ];
+        let aligned = align_dots(&cells);
+        assert_eq!(
+            aligned,
+            vec![
+                "10.5 person-months".to_string(),
+                " 5.0 person-months".to_string(),
+                " 3.0 person-years".to_string(),
+                "   —".to_string(),
+                " 0.5 person-days".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn format_text_pins_percentages_and_totals() {
+        let report = crate::Report {
+            by_language: vec![
+                crate::report::LanguageTotal {
+                    name: "Rust".into(),
+                    sloc: 75,
+                    files: 3,
+                    comments: 10,
+                    leaf_tokens: 170,
+                    ai_tokens: 0,
+                },
+                crate::report::LanguageTotal {
+                    name: "Python".into(),
+                    sloc: 25,
+                    files: 2,
+                    comments: 5,
+                    leaf_tokens: 60,
+                    ai_tokens: 0,
+                },
+            ],
+            total_sloc: 100,
+            total_comments: 15,
+            total_files: 5,
+            halstead: None,
+            mccabe: None,
+            henry_kafura: None,
+            nodes: crate::complexity::NodeCounts::default(),
+            schedule: None,
+            llm_tokens: None,
+            performance: crate::Performance {
+                elapsed_secs: 0.0,
+                bytes_parsed: 0,
+                files: 5,
+                functions: 0,
+                bytes_per_sec: 0.0,
+                files_per_sec: 0.0,
+                functions_per_sec: 0.0,
+            },
+            cache_hits: 0,
+            cache_misses: 0,
+        };
+        let cfg = crate::ai_config::default_config();
+        let out = format_text(&report, false, Colors::force(false), &cfg, None);
+        assert!(out.contains("75.00%"), "{out}");
+        assert!(out.contains("25.00%"), "{out}");
+        assert!(
+            out.contains("Total lines of code without comments"),
+            "{out}"
+        );
+        assert!(out.contains("100"), "total sloc missing: {out}");
+    }
+
+    #[test]
+    fn format_text_zero_sloc_no_nan() {
+        // A language row with zero SLOC must render 0.00%, never NaN%.
+        let report = crate::Report {
+            by_language: vec![crate::report::LanguageTotal {
+                name: "Empty".into(),
+                sloc: 0,
+                files: 1,
+                comments: 0,
+                leaf_tokens: 0,
+                ai_tokens: 0,
+            }],
+            total_sloc: 0,
+            total_comments: 0,
+            total_files: 1,
+            halstead: None,
+            mccabe: None,
+            henry_kafura: None,
+            nodes: crate::complexity::NodeCounts::default(),
+            schedule: None,
+            llm_tokens: None,
+            performance: crate::Performance {
+                elapsed_secs: 0.0,
+                bytes_parsed: 0,
+                files: 1,
+                functions: 0,
+                bytes_per_sec: 0.0,
+                files_per_sec: 0.0,
+                functions_per_sec: 0.0,
+            },
+            cache_hits: 0,
+            cache_misses: 0,
+        };
+        let cfg = crate::ai_config::default_config();
+        let out = format_text(&report, false, Colors::force(false), &cfg, None);
+        assert!(out.contains("0.00%"), "{out}");
+        assert!(!out.contains("NaN"), "{out}");
+    }
 }

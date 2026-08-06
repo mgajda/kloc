@@ -321,4 +321,28 @@ mod tests {
         let white = Rgb::hex(0xFFFFFF).lightened(0.5);
         assert_eq!((white.r, white.g, white.b), (255, 255, 255));
     }
+    #[test]
+    fn logo_colors_covers_data_and_shader_languages() {
+        // Every match arm must be reachable: deleting any arm makes
+        // logo_colors return None for that name, which the assertion catches.
+        for name in [
+            "GLSL",
+            "GraphQL",
+            "Make",
+            "V",
+            "CSS",
+            "CMake",
+            "HTML",
+            "JSON",
+            "Protobuf",
+            "YAML",
+            "HCL",
+            "reStructuredText",
+            "AsciiDoc",
+        ] {
+            assert!(logo_colors(name).is_some(), "no logo colour for {name}");
+        }
+        // Unknown names yield None.
+        assert!(logo_colors("NoSuchLanguage").is_none());
+    }
 }

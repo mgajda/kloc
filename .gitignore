@@ -7,6 +7,4 @@ debian/files
 debian/*.substvars
 debian/kloc/
 mutants.out*/
-add
-.cargo
 src-repos
