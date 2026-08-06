@@ -28,13 +28,13 @@ pub struct LanguageSpec {
     pub extensions: &'static [&'static str],
     pub shebangs: &'static [&'static str],
     pub filenames: &'static [&'static str],
-    pub grammar_fn: GrammarFn,
+    pub grammar_fn: Option<GrammarFn>,
     pub comment_kinds: &'static [&'static str],
 }
 
 impl LanguageSpec {
-    pub fn grammar(&self) -> Language {
-        (self.grammar_fn)()
+    pub fn grammar(&self) -> Option<Language> {
+        self.grammar_fn.map(|f| f())
     }
 
     pub fn subgroup_name(&self) -> Option<&'static str> {
@@ -69,7 +69,7 @@ pub fn registry() -> &'static LanguageRegistry {
                     extensions: $exts,
                     shebangs: $shebangs,
                     filenames: $fnames,
-                    grammar_fn: $fn,
+                    grammar_fn: Some($fn),
                     comment_kinds: $comments,
                 });
             }};
@@ -83,8 +83,20 @@ pub fn registry() -> &'static LanguageRegistry {
         add_lang!(Programming, None, &[".c", ".h"], &[], &[], "C", &["comment"],
             || Language::new(tree_sitter_c::LANGUAGE));
         #[cfg(feature = "python")]
-        add_lang!(Programming, None, &[".py", ".pyw"], &["python"], &[], "Python", &["comment"],
+        add_lang!(Programming, None, &[".py", ".pyw", ".pyi"], &["python"], &[], "Python", &["comment"],
             || Language::new(tree_sitter_python::LANGUAGE));
+        // Jupyter notebooks: JSON files whose code/markdown cells are counted
+        // by a notebook-aware path in counter (no tree-sitter grammar needed).
+        reg.languages.push(LanguageSpec {
+            name: "Jupyter Notebook",
+            category: LanguageCategory::Programming,
+            subgroup: None,
+            extensions: &[".ipynb"],
+            shebangs: &[],
+            filenames: &[],
+            grammar_fn: None,
+            comment_kinds: &[],
+        });
         #[cfg(feature = "javascript")]
         add_lang!(Programming, None, &[".js", ".jsx", ".mjs", ".cjs"], &["node", "nodejs"], &[], "JavaScript", &["comment"],
             || Language::new(tree_sitter_javascript::LANGUAGE));
@@ -269,7 +281,7 @@ pub fn registry() -> &'static LanguageRegistry {
             || Language::new(tree_sitter_rst::LANGUAGE));
         #[cfg(feature = "asciidoc")]
         add_lang!(Machine, Some(LanguageSubgroup::Markup), &[".adoc", ".asciidoc", ".ad"], &[], &[], "AsciiDoc", &["comment"],
-            || tree_sitter_asciidoc::language());
+            tree_sitter_asciidoc::language);
         reg
     })
 }

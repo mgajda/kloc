@@ -328,7 +328,9 @@ fn classify(kind: &str, text: &str, parent_kind: &str) -> bool {
 }
 
 pub fn analyze(source: &[u8], spec: &LanguageSpec) -> ComplexityResult {
-    let language = spec.grammar();
+    let Some(language) = spec.grammar() else {
+        return empty_result();
+    };
     let mut parser = tree_sitter::Parser::new();
     if parser.set_language(&language).is_err() {
         return empty_result();
@@ -732,7 +734,7 @@ mod tests {
             extensions: &[],
             shebangs: &[],
             filenames: &[],
-            grammar_fn: || Language::new(tree_sitter_rust::LANGUAGE),
+            grammar_fn: Some(|| Language::new(tree_sitter_rust::LANGUAGE)),
             comment_kinds: &["line_comment", "block_comment"],
         }
     }
@@ -740,7 +742,7 @@ mod tests {
     fn parse(source: &[u8]) -> tree_sitter::Tree {
         let spec = rust_spec();
         let mut parser = tree_sitter::Parser::new();
-        parser.set_language(&spec.grammar()).unwrap();
+        parser.set_language(&spec.grammar().unwrap()).unwrap();
         parser.parse(source, None).unwrap()
     }
 
@@ -789,11 +791,11 @@ mod tests {
             extensions: &[],
             shebangs: &[],
             filenames: &[],
-            grammar_fn: || Language::new(tree_sitter_c::LANGUAGE),
+            grammar_fn: Some(|| Language::new(tree_sitter_c::LANGUAGE)),
             comment_kinds: &["comment"],
         };
         let mut parser = tree_sitter::Parser::new();
-        parser.set_language(&spec.grammar()).unwrap();
+        parser.set_language(&spec.grammar().unwrap()).unwrap();
         let tree = parser.parse(src, None).unwrap();
         let hk = analyze_henry_kafura(&tree.root_node(), src);
         assert_eq!(

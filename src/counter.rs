@@ -7,6 +7,9 @@ use tree_sitter::{Node, Parser};
 pub struct CountResult {
     pub sloc: u64,
     pub comments: u64,
+    /// Documentation lines (e.g. Python/Julia docstrings). These are counted
+    /// separately from code and never contribute to `sloc`.
+    pub docs: u64,
     pub blanks: u64,
     pub nodes: NodeCounts,
 }
@@ -21,11 +24,18 @@ pub fn count(source: &[u8], spec: &LanguageSpec) -> CountResult {
     let empty = CountResult {
         sloc: 0,
         comments: 0,
+        docs: 0,
         blanks: line_count(source) as u64,
         nodes: NodeCounts::default(),
     };
+    if spec.name == "Jupyter Notebook" {
+        return count_notebook(source);
+    }
+    let Some(grammar) = spec.grammar() else {
+        return empty;
+    };
     let mut parser = Parser::new();
-    if parser.set_language(&spec.grammar()).is_err() {
+    if parser.set_language(&grammar).is_err() {
         return empty;
     }
 
@@ -40,6 +50,11 @@ pub fn count(source: &[u8], spec: &LanguageSpec) -> CountResult {
     let mut comment_ranges: Vec<(usize, usize)> = Vec::new();
     collect_comment_ranges(&root, &comment_kinds, &mut comment_ranges);
 
+    let mut doc_ranges: Vec<(usize, usize)> = Vec::new();
+    if supports_docstrings(spec.name) {
+        collect_docstring_ranges(&root, &comment_kinds, &mut doc_ranges);
+    }
+
     let nodes = count_nodes(&root);
 
     // Build a line-start index so line lookups are O(1); a per-range rescan
@@ -47,11 +62,19 @@ pub fn count(source: &[u8], spec: &LanguageSpec) -> CountResult {
     let line_starts = line_starts(source);
     let total_lines = line_starts.len();
     let mut line_is_comment = vec![false; total_lines];
+    let mut line_is_doc = vec![false; total_lines];
 
     for &(start, end) in &comment_ranges {
         let start_line = line_index(&line_starts, start, total_lines);
         let end_line = line_index(&line_starts, end.saturating_sub(1), total_lines);
         for line in line_is_comment[start_line..=end_line].iter_mut() {
+            *line = true;
+        }
+    }
+    for &(start, end) in &doc_ranges {
+        let start_line = line_index(&line_starts, start, total_lines);
+        let end_line = line_index(&line_starts, end.saturating_sub(1), total_lines);
+        for line in line_is_doc[start_line..=end_line].iter_mut() {
             *line = true;
         }
     }
@@ -72,6 +95,7 @@ pub fn count(source: &[u8], spec: &LanguageSpec) -> CountResult {
 
     let mut sloc = 0u64;
     let mut comments = 0u64;
+    let mut docs = 0u64;
     let mut blanks = 0u64;
     // Monotonic cursor into `merged` keeps the scan linear; a per-line scan
     // of the intervals would be O(lines × intervals).
@@ -89,6 +113,10 @@ pub fn count(source: &[u8], spec: &LanguageSpec) -> CountResult {
 
         if is_blank {
             blanks += 1;
+        } else if line_is_doc[line_idx] {
+            // Documentation (docstring) lines are never code, even when a
+            // comment-like token sits next to them.
+            docs += 1;
         } else if *is_comment {
             // Does the line contain any non-whitespace byte outside a comment?
             let mut i = line_start;
@@ -123,9 +151,107 @@ pub fn count(source: &[u8], spec: &LanguageSpec) -> CountResult {
     CountResult {
         sloc,
         comments,
+        docs,
         blanks,
         nodes,
     }
+}
+
+/// Languages whose documentation is written as bare string statements
+/// (docstrings) rather than comment tokens: a leading `"""..."""` in Python
+/// and Julia is an `expression_statement` containing a `string`, not a comment.
+fn supports_docstrings(name: &str) -> bool {
+    matches!(name, "Python" | "Julia")
+}
+
+/// Count a Jupyter notebook: `code` cells contribute code lines, `markdown`
+/// cells contribute documentation lines, blanks stay blanks. The JSON wrapper
+/// is not counted.
+fn count_notebook(source: &[u8]) -> CountResult {
+    let empty = CountResult {
+        sloc: 0,
+        comments: 0,
+        docs: 0,
+        blanks: 0,
+        nodes: NodeCounts::default(),
+    };
+    let Ok(json) = serde_json::from_slice::<serde_json::Value>(source) else {
+        return empty;
+    };
+    let mut sloc = 0u64;
+    let mut docs = 0u64;
+    let mut blanks = 0u64;
+    if let Some(cells) = json.get("cells").and_then(|c| c.as_array()) {
+        for cell in cells {
+            let is_code = cell.get("cell_type").and_then(|t| t.as_str()) == Some("code");
+            if let Some(src) = cell.get("source").and_then(|s| s.as_array()) {
+                for line in src {
+                    let text = line.as_str().unwrap_or("");
+                    if text.trim().is_empty() {
+                        blanks += 1;
+                    } else if is_code {
+                        sloc += 1;
+                    } else {
+                        docs += 1; // markdown cells are documentation
+                    }
+                }
+            }
+        }
+    }
+    CountResult {
+        sloc,
+        comments: 0,
+        docs,
+        blanks,
+        nodes: NodeCounts::default(),
+    }
+}
+
+/// Collect the byte ranges of docstrings: a statement whose only child is a
+/// `string` / `concatenated_string`, appearing as the first statement of its
+/// parent body (only comments may precede it). Python/Julia put the module
+/// docstring as the first `module` child and the function/class docstring as
+/// the first child of the body `block`.
+fn collect_docstring_ranges(
+    root: &Node,
+    comment_kinds: &HashSet<&str>,
+    ranges: &mut Vec<(usize, usize)>,
+) {
+    let mut stack = vec![*root];
+    while let Some(node) = stack.pop() {
+        if is_docstring(&node, comment_kinds) {
+            ranges.push((node.start_byte(), node.end_byte()));
+        }
+        push_children_reversed(&mut stack, &node);
+    }
+}
+
+/// A bare string statement that is the first statement of its parent.
+fn is_docstring(node: &Node, comment_kinds: &HashSet<&str>) -> bool {
+    if node.kind() != "expression_statement" {
+        return false;
+    }
+    let mut child = node.walk();
+    if !child.goto_first_child() {
+        return false;
+    }
+    let kind = child.node().kind();
+    if kind != "string" && kind != "concatenated_string" {
+        return false;
+    }
+    if child.goto_next_sibling() {
+        return false; // more than one child: a call or assignment, not a docstring
+    }
+    // First statement of the body: only comments may precede it (shebang,
+    // or a comment between the signature and the docstring).
+    let mut prev = node.prev_sibling();
+    while let Some(p) = prev {
+        if !comment_kinds.contains(p.kind()) {
+            return false;
+        }
+        prev = p.prev_sibling();
+    }
+    true
 }
 
 /// Byte offsets where each line starts. `line_starts[0] = 0`; a trailing
@@ -264,7 +390,7 @@ mod tests {
             extensions: &[],
             shebangs: &[],
             filenames: &[],
-            grammar_fn: || Language::new(tree_sitter_rust::LANGUAGE),
+            grammar_fn: Some(|| Language::new(tree_sitter_rust::LANGUAGE)),
             comment_kinds: &["line_comment", "block_comment"],
         };
         // Line 1: trailing comment on code → SLOC.
@@ -288,7 +414,7 @@ mod tests {
             extensions: &[],
             shebangs: &[],
             filenames: &[],
-            grammar_fn: || Language::new(tree_sitter_bash::LANGUAGE),
+            grammar_fn: Some(|| Language::new(tree_sitter_bash::LANGUAGE)),
             comment_kinds: &["comment"],
         };
         let result = count(b"\n\n\n", &spec);
@@ -302,6 +428,7 @@ mod tests {
         let r = CountResult {
             sloc: 1,
             comments: 2,
+            docs: 4,
             blanks: 3,
             nodes: NodeCounts::default(),
         };
@@ -319,7 +446,7 @@ mod tests {
             extensions: &[],
             shebangs: &[],
             filenames: &[],
-            grammar_fn: || Language::new(tree_sitter_rust::LANGUAGE),
+            grammar_fn: Some(|| Language::new(tree_sitter_rust::LANGUAGE)),
             comment_kinds: &["block_comment", "line_comment"],
         };
         // Two adjacent block comments on one line must classify as a comment
@@ -340,7 +467,7 @@ mod tests {
             extensions: &[],
             shebangs: &[],
             filenames: &[],
-            grammar_fn: || Language::new(tree_sitter_rust::LANGUAGE),
+            grammar_fn: Some(|| Language::new(tree_sitter_rust::LANGUAGE)),
             comment_kinds: &["comment"],
         };
         // An unterminated brace yields ERROR nodes, but tree-sitter recovers;
@@ -353,5 +480,61 @@ mod tests {
     fn test_line_index_out_of_range() {
         let starts = line_starts(b"abc\ndef");
         assert_eq!(line_index(&starts, 999, starts.len()), 1);
+    }
+    #[test]
+    fn python_docstrings_are_docs_not_code() {
+        use crate::language::LanguageCategory;
+        use tree_sitter::Language;
+        let spec = LanguageSpec {
+            name: "Python",
+            category: LanguageCategory::Programming,
+            subgroup: None,
+            extensions: &[],
+            shebangs: &[],
+            filenames: &[],
+            grammar_fn: Some(|| Language::new(tree_sitter_python::LANGUAGE)),
+            comment_kinds: &["comment"],
+        };
+        // Module docstring (3 lines), function docstring (2 lines), then real code.
+        let src = b"\"\"\"Module doc.\nMore.\nAnd more.\"\"\"\n\nimport os\n\ndef f():\n    \"\"\"Func doc.\n    More.\n    \"\"\"\n    return 1\n";
+        let r = count(src, &spec);
+        assert_eq!(r.docs, 6, "docstring lines counted as docs");
+        assert_eq!(r.sloc, 3, "import + def + return are the only code");
+        assert_eq!(r.comments, 0);
+        assert_eq!(r.blanks, 2);
+        // A mid-function bare string is code, not a docstring.
+        let src2 = b"def g():\n    return 1\n    \"x\"\n";
+        let r2 = count(src2, &spec);
+        assert_eq!(r2.docs, 0);
+        assert_eq!(r2.sloc, 3, "the bare string line is code, not a docstring");
+    }
+    #[test]
+    fn jupyter_notebook_counts_cells() {
+        use crate::language::LanguageCategory;
+        let spec = LanguageSpec {
+            name: "Jupyter Notebook",
+            category: LanguageCategory::Programming,
+            subgroup: None,
+            extensions: &[".ipynb"],
+            shebangs: &[],
+            filenames: &[],
+            grammar_fn: None,
+            comment_kinds: &[],
+        };
+        let nb = br##"{
+ "cells": [
+  {"cell_type": "code", "source": ["import numpy as np\n", "x = np.array([1, 2])\n"]},
+  {"cell_type": "markdown", "source": ["# Title\n", "Body **text**.\n"]},
+  {"cell_type": "code", "source": ["\n"]}
+ ],
+ "nbformat": 4
+}"##;
+        let r = count(nb, &spec);
+        assert_eq!(r.sloc, 2, "code cells count as code");
+        assert_eq!(r.docs, 2, "markdown cells count as docs");
+        assert_eq!(r.blanks, 1, "blank source line stays blank");
+        assert_eq!(r.comments, 0);
+        // The JSON wrapper is not counted at all.
+        assert_eq!(r.sloc + r.docs + r.blanks, 5);
     }
 }

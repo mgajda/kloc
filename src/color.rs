@@ -135,6 +135,7 @@ pub fn logo_colors(name: &str) -> Option<LogoColors> {
         "C" => (0x555555, None),
         "C++" => (0xF34B7D, None),
         "Python" => (0xFFD43B, Some(0x3572A5)), // bright yellow fg on blue bg
+        "Jupyter Notebook" => (0xF37726, None), // Jupyter orange
         "JavaScript" => (0xF1E05A, None),
         "Bash" => (0x89E051, None),
         "Haskell" => (0x5E5086, None),

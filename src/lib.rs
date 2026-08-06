@@ -151,7 +151,10 @@ impl RunOptions {
         }
         RunOptions {
             sloc_only: args.sloc_only,
-            count_llm_tokens: true,
+            // `--sloc-only` reports only SLOC/comments/blanks; it never shows
+            // token counts, so skip the ~0.6 s / ~90 MB tokenizer build that
+            // the default mode needs. This keeps plain counting fast.
+            count_llm_tokens: !args.sloc_only,
             cache: cache::Cache::new(!args.no_cache),
             ignore,
         }
@@ -261,8 +264,8 @@ pub fn run(paths: &[PathBuf], filter: &LanguageFilter, opts: &RunOptions) -> Rep
 
     let elapsed = start.elapsed().as_secs_f64();
 
-    // Per-language aggregate: (sloc, files, comments, leaf_tokens, ai_tokens).
-    let mut counts: BTreeMap<String, (u64, u64, u64, u64, u64)> = BTreeMap::new();
+    // Per-language aggregate: (sloc, files, comments, docs, leaf_tokens, ai_tokens).
+    let mut counts: BTreeMap<String, (u64, u64, u64, u64, u64, u64)> = BTreeMap::new();
     let mut halstead_agg: BTreeMap<String, complexity::HalsteadMetrics> = BTreeMap::new();
     let mut mccabe_agg: BTreeMap<String, complexity::McCabeMetrics> = BTreeMap::new();
     let mut hk_agg = complexity::HenryKafuraMetrics::default();
@@ -281,14 +284,15 @@ pub fn run(paths: &[PathBuf], filter: &LanguageFilter, opts: &RunOptions) -> Rep
         }
         nodes_agg.named_nodes += r.count.nodes.named_nodes;
         nodes_agg.leaf_tokens += r.count.nodes.leaf_tokens;
-        let e = counts.entry(r.name.clone()).or_insert((0, 0, 0, 0, 0));
+        let e = counts.entry(r.name.clone()).or_insert((0, 0, 0, 0, 0, 0));
         e.0 += r.count.sloc;
         e.1 += 1;
         e.2 += r.count.comments;
-        e.3 += r.count.nodes.leaf_tokens;
+        e.3 += r.count.docs;
+        e.4 += r.count.nodes.leaf_tokens;
         #[cfg(feature = "tokens")]
         {
-            e.4 += r.llm_tokens.claude_sonnet;
+            e.5 += r.llm_tokens.claude_sonnet;
         }
 
         if let Some(ref cx) = r.cx {
@@ -385,7 +389,7 @@ mod tests {
             extensions: &[],
             shebangs: &[],
             filenames: &[],
-            grammar_fn: || Language::new(tree_sitter_rust::LANGUAGE),
+            grammar_fn: Some(|| Language::new(tree_sitter_rust::LANGUAGE)),
             comment_kinds: &["comment"],
         }
     }
@@ -486,7 +490,8 @@ mod tests {
         .unwrap();
         let opts = RunOptions::from_args(&args);
         assert!(opts.sloc_only);
-        assert!(opts.count_llm_tokens);
+        // `--sloc-only` skips the tokenizer: it never reports token counts.
+        assert!(!opts.count_llm_tokens);
         assert!(opts.ignore.is_ignored("build"));
         assert!(!opts.ignore.is_ignored("dist"));
     }

@@ -161,6 +161,7 @@ mod tests {
             CountResult {
                 sloc: 1,
                 comments: 2,
+                docs: 0,
                 blanks: 3,
                 nodes: Default::default(),
             },

@@ -469,12 +469,14 @@ fn format_text(
     // (LoC-driven = blue, files = yellow, tree-sitter = white, AI = cyan).
     let loc_fg = 4u8; // blue (LoC-driven LOC)
     let files_fg = 3u8; // yellow
+    let docs_fg = 5u8; // magenta (documentation)
     let ts_fg = 7u8; // white (tree-sitter)
     let ai_fg = 6u8; // cyan (AI)
     let hdr = format!(
-        "{:<12}{} {} {} {}\n",
+        "{:<12}{} {} {} {} {}\n",
         "Language",
         colors.ansi(&format!("{:>10}", "LOC"), loc_fg),
+        colors.ansi(&format!("{:>7}", "Docs"), docs_fg),
         colors.ansi(&format!("{:>8}", "Files"), files_fg),
         colors.ansi(&format!("{:>12}", "Tree-sit. tok"), ts_fg),
         colors.ansi(&format!("{:>12}", "AI tokens"), ai_fg),
@@ -488,14 +490,16 @@ fn format_text(
         };
         let name_field = colored_name_field(&lang.name, &colors);
         let sloc = format!("{:>10}", lang.sloc);
+        let docs = format!("{:>7}", lang.docs);
         let files = format!("{:>8}", lang.files);
         let leaf = format!("{:>12}", human_tokens(lang.leaf_tokens));
         let ai = format!("{:>12}", human_tokens(lang.ai_tokens));
         // Colour after padding so ANSI codes don't affect column alignment.
         out.push_str(&format!(
-            "{}{} {} {} {} ({:.2}%)\n",
+            "{}{} {} {} {} {} ({:.2}%)\n",
             name_field,
             colors.ansi(&sloc, loc_fg),
+            colors.ansi(&docs, docs_fg),
             colors.ansi(&files, files_fg),
             colors.ansi(&leaf, ts_fg),
             colors.ansi(&ai, ai_fg),
@@ -507,6 +511,10 @@ fn format_text(
     out.push_str(&format!(
         "{:44}= {}\n",
         "Total lines of code without comments", report.total_sloc
+    ));
+    out.push_str(&format!(
+        "{:44}= {}\n",
+        "Total documentation lines (docstrings)", report.total_docs
     ));
     out.push_str(&format!(
         "{:44}= {}\n",
@@ -1191,6 +1199,7 @@ mod tests {
                     sloc: 75,
                     files: 3,
                     comments: 10,
+                    docs: 0,
                     leaf_tokens: 170,
                     ai_tokens: 0,
                 },
@@ -1199,12 +1208,14 @@ mod tests {
                     sloc: 25,
                     files: 2,
                     comments: 5,
+                    docs: 0,
                     leaf_tokens: 60,
                     ai_tokens: 0,
                 },
             ],
             total_sloc: 100,
             total_comments: 15,
+            total_docs: 0,
             total_files: 5,
             halstead: None,
             mccabe: None,
@@ -1244,11 +1255,13 @@ mod tests {
                 sloc: 0,
                 files: 1,
                 comments: 0,
+                docs: 0,
                 leaf_tokens: 0,
                 ai_tokens: 0,
             }],
             total_sloc: 0,
             total_comments: 0,
+            total_docs: 0,
             total_files: 1,
             halstead: None,
             mccabe: None,

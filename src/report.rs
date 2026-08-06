@@ -9,6 +9,8 @@ pub struct LanguageTotal {
     pub name: String,
     pub sloc: u64,
     pub comments: u64,
+    /// Documentation lines (docstrings) — counted separately, never in `sloc`.
+    pub docs: u64,
     pub files: u64,
     pub leaf_tokens: u64,
     pub ai_tokens: u64,
@@ -19,6 +21,7 @@ pub struct Report {
     pub by_language: Vec<LanguageTotal>,
     pub total_sloc: u64,
     pub total_comments: u64,
+    pub total_docs: u64,
     pub total_files: u64,
     pub halstead: Option<complexity::HalsteadMetrics>,
     pub mccabe: Option<complexity::McCabeMetrics>,
@@ -34,7 +37,7 @@ pub struct Report {
 impl Report {
     #[allow(clippy::too_many_arguments)]
     pub fn from_data(
-        counts: BTreeMap<String, (u64, u64, u64, u64, u64)>,
+        counts: BTreeMap<String, (u64, u64, u64, u64, u64, u64)>,
         cx_halstead: BTreeMap<String, complexity::HalsteadMetrics>,
         cx_mccabe: BTreeMap<String, complexity::McCabeMetrics>,
         nodes: complexity::NodeCounts,
@@ -46,19 +49,23 @@ impl Report {
     ) -> Self {
         let mut by_language: Vec<LanguageTotal> = counts
             .into_iter()
-            .map(|(name, (sloc, files, comments, leaf, ai))| LanguageTotal {
-                name,
-                sloc,
-                comments,
-                files,
-                leaf_tokens: leaf,
-                ai_tokens: ai,
-            })
+            .map(
+                |(name, (sloc, files, comments, docs, leaf, ai))| LanguageTotal {
+                    name,
+                    sloc,
+                    comments,
+                    docs,
+                    files,
+                    leaf_tokens: leaf,
+                    ai_tokens: ai,
+                },
+            )
             .collect();
         by_language.sort_by_key(|l| std::cmp::Reverse(l.sloc));
 
         let total_sloc = by_language.iter().map(|l| l.sloc).sum();
         let total_comments = by_language.iter().map(|l| l.comments).sum();
+        let total_docs = by_language.iter().map(|l| l.docs).sum();
         let total_files = by_language.iter().map(|l| l.files).sum();
 
         let halstead = complexity::aggregate_halstead(cx_halstead.values());
@@ -72,6 +79,7 @@ impl Report {
             by_language,
             total_sloc,
             total_comments,
+            total_docs,
             total_files,
             halstead,
             mccabe,
